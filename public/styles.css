@@ -1,0 +1,22 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  background: #090b12;
+  color: #edf2ff;
+}
+
+body { margin: 0; min-height: 100vh; background: radial-gradient(circle at top right, #28205c 0, transparent 38%), #090b12; }
+main { width: min(720px, calc(100% - 2rem)); margin: 0 auto; padding: 4rem 0; }
+.eyebrow { color: #8ef4d2; letter-spacing: .18em; font-size: .75rem; font-weight: 800; }
+h1 { font-size: clamp(2.5rem, 8vw, 5rem); line-height: .95; margin: .4rem 0 1.5rem; }
+.intro { color: #bbc4dc; font-size: 1.1rem; max-width: 58ch; }
+form, section { margin-top: 2rem; padding: 1.5rem; background: rgba(20, 24, 38, .88); border: 1px solid #343b56; border-radius: 18px; }
+label { display: block; margin-bottom: .7rem; font-weight: 700; }
+textarea { box-sizing: border-box; width: 100%; min-height: 180px; resize: vertical; padding: 1rem; border: 1px solid #4a5475; border-radius: 10px; background: #0d101a; color: inherit; font: inherit; line-height: 1.5; }
+.warning { color: #ffd39b; padding: .8rem 1rem; border-left: 3px solid #ff9f43; background: #291d13; }
+button, .download { display: inline-block; border: 0; border-radius: 999px; padding: .85rem 1.25rem; background: #8ef4d2; color: #07120f; font: inherit; font-weight: 800; cursor: pointer; text-decoration: none; }
+button:disabled { cursor: wait; opacity: .5; }
+#status { min-height: 1.5rem; color: #cbd5ee; }
+audio, input[type="range"] { width: 100%; }
+.volume { margin-top: 1.25rem; }
+.download { margin-top: 1.5rem; }

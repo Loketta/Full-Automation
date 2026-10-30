@@ -1,0 +1,19 @@
+{
+  "name": "lyria-local-studio",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A small local UI for generating one instrumental track with Google Lyria 3.5.",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@google/genai": "^1.30.0",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0"
+  }
+}

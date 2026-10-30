@@ -40,6 +40,14 @@ npm test
 
 Tests use mocked Lyria responses, need no API key, make no network requests, and spend no API credit.
 
+## GitHub Actions tests
+
+GitHub automatically runs the same eight offline tests for every pull request targeting `main` and every push to `main`. The workflow uses Node.js 24, installs the locked dependencies with `npm ci`, and runs `npm test` on an Ubuntu runner.
+
+The workflow has read-only repository access and is not given a Gemini API key. The test suite injects mocked Lyria clients instead of creating a real Google client, so it cannot request music or incur generation charges.
+
+To view a run, open the repository's **Actions** tab and select **Tests**, or open a pull request and check its **Checks** section.
+
 ## Troubleshooting
 
 - **Missing key:** confirm the file is named exactly `.env` and contains `GEMINI_API_KEY=...`.
@@ -55,4 +63,4 @@ Implementation checked against Google's official [Lyria 3.5 music generation gui
 
 ## Scope
 
-This milestone intentionally has no cloud deployment, scheduled generation, GitHub Actions generation job, YouTube integration, or recurring automation.
+This milestone intentionally has no cloud deployment, scheduled generation, GitHub Actions music-generation job, YouTube integration, or recurring automation. GitHub Actions is used only for the offline test suite.

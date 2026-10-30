@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lyria Local Studio</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main>
+    <p class="eyebrow">LOCAL MUSIC WORKBENCH</p>
+    <h1>Lyria Local Studio</h1>
+    <p class="intro">Describe one instrumental track. Your API key stays on this computer and is never sent to the browser.</p>
+
+    <form id="generate-form">
+      <label for="prompt">Instrumental style prompt</label>
+      <textarea id="prompt" name="prompt" minlength="10" maxlength="2000" required>A cinematic cyberpunk instrumental at 105 BPM, dark analog bass, rain-soaked neon atmosphere, tense arpeggiated synths, and a powerful wordless finale.</textarea>
+      <p class="warning"><strong>Paid action:</strong> clicking Generate and confirming makes exactly one paid Lyria 3.5 API request. It will not retry automatically.</p>
+      <button id="generate-button" type="submit">Generate one track</button>
+    </form>
+
+    <p id="status" role="status" aria-live="polite"></p>
+
+    <section id="result" hidden>
+      <h2>Your track</h2>
+      <audio id="player" controls preload="metadata"></audio>
+      <label class="volume" for="volume">Playback volume <output id="volume-value">50%</output></label>
+      <input id="volume" type="range" min="0" max="1" step="0.05" value="0.5">
+      <a id="download" class="download" download>Download MP3</a>
+    </section>
+  </main>
+  <script src="/app.js" defer></script>
+</body>
+</html>

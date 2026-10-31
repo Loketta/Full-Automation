@@ -18,11 +18,28 @@ export async function generateInstrumental(client, prompt) {
     response_format: { type: "audio" },
   });
 
-  const audio = interaction.output_audio;
-  if (!audio?.data) {
+  const audioData = extractMp3FromSteps(interaction.steps);
+  if (!audioData) {
     throw new UpstreamResponseError("Lyria completed the request but returned no MP3 audio.");
   }
-  return audio.data;
+  return audioData;
+}
+
+export function extractMp3FromSteps(steps) {
+  if (!Array.isArray(steps)) return undefined;
+
+  for (const step of steps) {
+    if (step?.type !== "model_output" || !Array.isArray(step.content)) continue;
+    for (const content of step.content) {
+      if (content?.type !== "audio" || !content.data) continue;
+      const mimeType = content.mime_type?.toLowerCase();
+      if (!mimeType || mimeType === "audio/mpeg" || mimeType === "audio/mp3") {
+        return content.data;
+      }
+    }
+  }
+
+  return undefined;
 }
 
 export function toPublicError(error) {
@@ -31,6 +48,9 @@ export function toPublicError(error) {
   }
 
   const status = getHttpStatus(error);
+  if (status === 400 && isLegacySchemaError(error)) {
+    return { status: 502, message: "This installation is using an incompatible Google SDK schema. Stop the server, run npm ci, restart it, and confirm @google/genai is version 2.0.0 or newer before trying again." };
+  }
   if (status === 429) {
     return { status: 429, message: "Google rate-limited the request or the project has no available quota. Check Gemini API billing and quota, then wait before choosing to try again." };
   }
@@ -90,6 +110,11 @@ function isNetworkError(error) {
     || error?.cause?.code === "ETIMEDOUT"
     || error?.cause?.code === "ECONNRESET"
     || error?.cause?.code === "ENOTFOUND";
+}
+
+function isLegacySchemaError(error) {
+  const message = `${error?.message ?? ""} ${error?.error?.message ?? ""}`;
+  return /legacy interactions api schema|upgrade your @google\/genai/i.test(message);
 }
 
 function safeText(value, secrets) {

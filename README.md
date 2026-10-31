@@ -9,7 +9,7 @@ A deliberately small local Node.js app that generates **one instrumental MP3** w
 - [Visual Studio Code](https://code.visualstudio.com/)
 - A Gemini API key with billing and Lyria access
 
-The app uses Google's official `@google/genai` JavaScript SDK and the Interactions API. It does not make an API call during installation, startup, or tests. Generated Lyria audio contains Google's SynthID watermark.
+The app uses Google's official `@google/genai` 2.x JavaScript SDK and the current Interactions API `steps` schema. It does not make an API call during installation, startup, or tests. Generated Lyria audio contains Google's SynthID watermark.
 
 ## Setup in VS Code on Windows
 
@@ -61,7 +61,7 @@ API keys remain server-side. Error messages shown in the browser are sanitized a
 
 ## Verified API contract
 
-Implementation checked against Google's official [Lyria 3.5 music generation guide](https://ai.google.dev/gemini-api/docs/music-generation): model `lyria-3.5`, `client.interactions.create(...)`, text `input`, `response_format: { type: "audio" }`, and base64 MP3 data from `interaction.output_audio.data`.
+Implementation checked against Google's official [Lyria 3.5 music generation guide](https://ai.google.dev/gemini-api/docs/music-generation) and [Interactions breaking-changes guide](https://ai.google.dev/gemini-api/docs/interactions-breaking-changes-may-2026): model `lyria-3.5`, `@google/genai` 2.x, `client.interactions.create(...)`, text `input`, `response_format: { type: "audio" }`, and base64 MP3 data in an audio content block under a `model_output` step.
 
 ## Scope
 

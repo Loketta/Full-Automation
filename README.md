@@ -42,7 +42,7 @@ Tests use mocked Lyria responses, need no API key, make no network requests, and
 
 ## GitHub Actions tests
 
-GitHub automatically runs the same eight offline tests for every pull request targeting `main` and every push to `main`. The workflow uses Node.js 24, installs the locked dependencies with `npm ci`, and runs `npm test` on an Ubuntu runner.
+GitHub automatically runs the full offline test suite for every pull request targeting `main` and every push to `main`. The workflow uses Node.js 24, installs the locked dependencies with `npm ci`, and runs `npm test` on an Ubuntu runner.
 
 The workflow has read-only repository access and is not given a Gemini API key. The test suite injects mocked Lyria clients instead of creating a real Google client, so it cannot request music or incur generation charges.
 
@@ -54,6 +54,8 @@ To view a run, open the repository's **Actions** tab and select **Tests**, or op
 - **401/403:** verify the key, billing, and that the account can use Lyria 3.5.
 - **429:** wait before deliberately clicking Generate again. The app does not retry for you.
 - **No audio:** keep the error visible and try again only if you choose to spend another request.
+
+When generation fails, the browser shows a safe, actionable summary. The VS Code terminal shows a more detailed diagnostic containing only selected fields such as HTTP status, Google error code, sanitized message, and request ID. API keys and authentication headers are redacted, and the raw error object is never logged. Share the terminal diagnostic—not your `.env` file—when asking for help.
 
 API keys remain server-side. Error messages shown in the browser are sanitized and never include the key or raw provider response.
 

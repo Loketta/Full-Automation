@@ -11,6 +11,7 @@ try {
   const client = createLyriaClient(process.env.GEMINI_API_KEY);
   const app = createApp({
     client,
+    apiKey: process.env.GEMINI_API_KEY,
     outputDirectory: path.join(projectRoot, "output"),
     publicDirectory: path.join(projectRoot, "public"),
   });

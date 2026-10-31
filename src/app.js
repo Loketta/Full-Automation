@@ -1,10 +1,10 @@
 import path from "node:path";
 import express from "express";
 import { validatePrompt, ValidationError } from "./prompt.js";
-import { generateInstrumental, toPublicError } from "./lyria.js";
+import { createSafeDiagnostic, generateInstrumental, toPublicError } from "./lyria.js";
 import { saveMp3 } from "./output.js";
 
-export function createApp({ client, outputDirectory, publicDirectory }) {
+export function createApp({ client, outputDirectory, publicDirectory, logger = console, apiKey = "" }) {
   const app = express();
   let generationInProgress = false;
 
@@ -35,9 +35,7 @@ export function createApp({ client, outputDirectory, publicDirectory }) {
         audioUrl: `/audio/${encodeURIComponent(filename)}`,
       });
     } catch (error) {
-      const publicError = error instanceof ValidationError
-        ? { status: error.statusCode, message: error.message }
-        : toPublicError(error);
+      const publicError = reportGenerationError(error, { logger, apiKey });
       return response.status(publicError.status).json({ error: publicError.message });
     } finally {
       generationInProgress = false;
@@ -52,4 +50,13 @@ export function createApp({ client, outputDirectory, publicDirectory }) {
   });
 
   return app;
+}
+
+export function reportGenerationError(error, { logger = console, apiKey = "" } = {}) {
+  if (error instanceof ValidationError) {
+    return { status: error.statusCode, message: error.message };
+  }
+
+  logger.error("Lyria generation failed (no retry was attempted):", createSafeDiagnostic(error, [apiKey]));
+  return toPublicError(error);
 }

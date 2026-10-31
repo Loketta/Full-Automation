@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { generateInstrumental, LYRIA_MODEL, toPublicError } from "../src/lyria.js";
+import { createSafeDiagnostic, generateInstrumental, LYRIA_MODEL, toPublicError } from "../src/lyria.js";
 
 test("makes exactly one Lyria 3.5 interaction and returns its MP3 data", async () => {
   const calls = [];
@@ -30,8 +30,36 @@ test("does not retry a failed chargeable request", async () => {
 test("maps rate limit and unknown failures to safe public errors", () => {
   assert.deepEqual(toPublicError({ status: 429 }), {
     status: 429,
-    message: "Lyria is rate limited. Wait a moment, then choose when to try again.",
+    message: "Google rate-limited the request or the project has no available quota. Check Gemini API billing and quota, then wait before choosing to try again.",
   });
   assert.equal(toPublicError(new Error("secret detail")).status, 502);
   assert.doesNotMatch(toPublicError(new Error("secret detail")).message, /secret detail/);
+});
+
+test("maps common Google and network failures to actionable browser messages", () => {
+  assert.match(toPublicError({ status: 403 }).message, /API key|Lyria access/);
+  assert.match(toPublicError({ status: 400 }).message, /rejected the Lyria request/);
+  assert.match(toPublicError({ status: 404 }).message, /model lyria-3\.5/);
+  assert.match(toPublicError({ status: 503 }).message, /service returned a server error/);
+  assert.match(toPublicError({ name: "APIConnectionError" }).message, /internet connection/);
+});
+
+test("creates useful diagnostics while redacting keys and authentication data", () => {
+  const apiKey = "AIzaSecretKeyMaterial123456789012345";
+  const error = Object.assign(new Error(`request failed with key=${apiKey}`), {
+    status: 403,
+    error: {
+      status: "PERMISSION_DENIED",
+      message: `x-goog-api-key: ${apiKey}`,
+    },
+    headers: new Headers({ "x-goog-request-id": "request-123" }),
+  });
+
+  const diagnostic = createSafeDiagnostic(error, [apiKey]);
+  const serialized = JSON.stringify(diagnostic);
+  assert.equal(diagnostic.httpStatus, 403);
+  assert.equal(diagnostic.providerCode, "PERMISSION_DENIED");
+  assert.equal(diagnostic.requestId, "request-123");
+  assert.doesNotMatch(serialized, /AIza|SecretKeyMaterial|x-goog-api-key/i);
+  assert.match(serialized, /REDACTED/);
 });

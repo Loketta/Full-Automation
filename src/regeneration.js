@@ -88,8 +88,21 @@ export async function recoverReplacementTransactions(projects, library, logger =
   let pending = false;
   for (const recording of library.list().filter((track) => track.replacementForLibraryTrackId)) {
     try {
-      if (projects.referencesLibraryTrack(recording.id)) await library.finalizeReplacement(recording.id);
-      else await library.delete(recording.id);
+      const { track } = projects.getTrack(recording.projectId, recording.plannedTrackId);
+      if (track.libraryTrackId === recording.id && track.replacementCleanupId === recording.replacementForLibraryTrackId) {
+        await library.finalizeReplacement(recording.id);
+      } else if (track.libraryTrackId === recording.replacementForLibraryTrackId
+        && library.list().some((candidate) => candidate.id === recording.replacementForLibraryTrackId)) {
+        await library.delete(recording.id);
+      } else {
+        pending = true;
+        logger.error("Prepared replacement cannot be safely classified; files were preserved:", {
+          projectId: recording.projectId,
+          plannedTrackId: recording.plannedTrackId,
+          replacementId: recording.id,
+          originalId: recording.replacementForLibraryTrackId,
+        });
+      }
     } catch (error) {
       pending = true;
       logger.error("Replacement preparation recovery remains pending:", safeError(error));
@@ -100,7 +113,34 @@ export async function recoverReplacementTransactions(projects, library, logger =
     try {
       const { track } = projects.getTrack(cleanup.projectId, cleanup.plannedTrackId);
       const current = track.libraryTrackId ? library.list().find((candidate) => candidate.id === track.libraryTrackId) : undefined;
-      if (current?.replacementForLibraryTrackId) continue;
+      if (!current) {
+        pending = true;
+        logger.error("Committed replacement metadata is missing; original recording was preserved:", {
+          projectId: cleanup.projectId,
+          plannedTrackId: cleanup.plannedTrackId,
+          missingReplacementId: track.libraryTrackId,
+          originalId: cleanup.oldLibraryTrackId,
+        });
+        continue;
+      }
+      if (current.replacementForLibraryTrackId) {
+        pending = true;
+        continue;
+      }
+      const belongsToTrack = current.projectId === cleanup.projectId
+        && current.plannedTrackId === cleanup.plannedTrackId
+        && canonicalPrompt(current.prompt) === canonicalPrompt(track.prompt)
+        && current.id !== cleanup.oldLibraryTrackId;
+      if (!belongsToTrack) {
+        pending = true;
+        logger.error("Committed replacement could not be validated; original recording was preserved:", {
+          projectId: cleanup.projectId,
+          plannedTrackId: cleanup.plannedTrackId,
+          replacementId: current.id,
+          originalId: cleanup.oldLibraryTrackId,
+        });
+        continue;
+      }
       const warning = await cleanupOldRecording({ projects, library, ...cleanup, logger });
       if (warning) pending = true;
     } catch (error) {

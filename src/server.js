@@ -18,8 +18,8 @@ try {
   await library.initialize();
   const projects = new ProjectStore(outputDirectory);
   await projects.initialize();
-  await projects.reconcileLibraryLinks(library.list());
   const replacementRecovery = await recoverReplacementTransactions(projects, library);
+  await projects.reconcileLibraryLinks(library.list());
   const batches = new BatchStore(outputDirectory);
   await batches.initialize();
   const app = createApp({

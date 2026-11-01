@@ -116,8 +116,8 @@ test("safe regeneration commits an Unreviewed replacement before deleting the re
   const restartedProjects = new ProjectStore(values.output, values.dependencies);
   await restartedLibrary.initialize();
   await restartedProjects.initialize();
-  await restartedProjects.reconcileLibraryLinks(restartedLibrary.list());
   await recoverReplacementTransactions(restartedProjects, restartedLibrary);
+  await restartedProjects.reconcileLibraryLinks(restartedLibrary.list());
   assert.equal(restartedProjects.getTrack(values.project.id, values.planned.id).track.libraryTrackId, result.replacement.id);
   assert.equal(restartedLibrary.get(result.replacement.id).reviewStatus, "Unreviewed");
 });
@@ -164,10 +164,51 @@ test("restart recovery deletes an abandoned prepared replacement without touchin
     projectId: values.project.id, plannedTrackId: values.planned.id,
     replacementForLibraryTrackId: values.recording.id,
   });
-  await recoverReplacementTransactions(values.projects, values.library);
+  const recovery = await recoverReplacementTransactions(values.projects, values.library);
+  await values.projects.reconcileLibraryLinks(values.library.list());
+  assert.equal(recovery.pending, false);
   assert.equal(values.library.list().some((track) => track.id === prepared.id), false);
   assert.equal(values.library.get(values.recording.id).reviewStatus, "Reject");
   assert.equal(values.projects.getTrack(values.project.id, values.planned.id).track.libraryTrackId, values.recording.id);
+});
+
+test("missing committed replacement blocks recovery without relinking or deleting the rejected original", async (t) => {
+  const values = await fixture(t);
+  const missingReplacementId = "50000000-0000-4000-8000-999999999999";
+  await values.projects.commitReplacement(values.project.id, values.planned.id, {
+    oldLibraryTrackId: values.recording.id,
+    newLibraryTrackId: missingReplacementId,
+    prompt: "Revised instrumental prompt whose committed library entry is missing.",
+  });
+
+  const recovery = await recoverReplacementTransactions(values.projects, values.library, { error() {} });
+  await values.projects.reconcileLibraryLinks(values.library.list());
+  const interrupted = values.projects.getTrack(values.project.id, values.planned.id).track;
+  assert.equal(recovery.pending, true);
+  assert.match(recovery.message, /Paid generation is blocked/);
+  assert.equal(interrupted.libraryTrackId, missingReplacementId);
+  assert.equal(interrupted.replacementCleanupId, values.recording.id);
+  assert.equal(values.library.get(values.recording.id).reviewStatus, "Reject");
+  assert.equal(await readFile(path.join(values.output, "rejected.mp3"), "utf8"), "original rejected audio");
+});
+
+test("missing original during an uncommitted preparation preserves the prepared entry and blocks reconciliation", async (t) => {
+  const values = await fixture(t);
+  await writeFile(path.join(values.output, "unclassified-prepared.mp3"), "prepared audio");
+  const prepared = await values.library.registerGenerated({
+    filename: "unclassified-prepared.mp3", title: values.planned.title,
+    prompt: "Revised instrumental prompt with missing original metadata.",
+    projectId: values.project.id, plannedTrackId: values.planned.id,
+    replacementForLibraryTrackId: values.recording.id,
+  });
+  await values.library.delete(values.recording.id);
+
+  const recovery = await recoverReplacementTransactions(values.projects, values.library, { error() {} });
+  await values.projects.reconcileLibraryLinks(values.library.list());
+  assert.equal(recovery.pending, true);
+  assert.equal(values.library.get(prepared.id).replacementForLibraryTrackId, values.recording.id);
+  assert.equal(values.projects.getTrack(values.project.id, values.planned.id).track.libraryTrackId, values.recording.id);
+  assert.equal(await readFile(path.join(values.output, "unclassified-prepared.mp3"), "utf8"), "prepared audio");
 });
 
 test("old-recording deletion failure keeps a recovery marker and restart completes cleanup", async (t) => {

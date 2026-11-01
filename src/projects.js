@@ -204,9 +204,16 @@ export class ProjectStore {
   reconcileLibraryLinks(libraryTracks) {
     return this.#exclusive(async () => {
       const byId = new Map(libraryTracks.map((track) => [track.id, track]));
+      const preparedTrackKeys = new Set(libraryTracks
+        .filter((track) => track.replacementForLibraryTrackId && track.projectId && track.plannedTrackId)
+        .map((track) => `${track.projectId}:${track.plannedTrackId}`));
       let changed = false;
       for (const project of this.data.projects) {
         for (const track of project.tracks) {
+          // Replacement markers are transaction evidence, not ordinary links.
+          // Startup recovery must resolve them before generic reconciliation may
+          // relink or downgrade the planned track.
+          if (track.replacementCleanupId || preparedTrackKeys.has(`${project.id}:${track.id}`)) continue;
           const current = track.libraryTrackId ? byId.get(track.libraryTrackId) : undefined;
           const associated = current ?? libraryTracks.find((libraryTrack) =>
             libraryTrack.projectId === project.id && libraryTrack.plannedTrackId === track.id);

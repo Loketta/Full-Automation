@@ -38,8 +38,8 @@ audio, input[type="range"] { width: 100%; }
 .batch-controls p { margin: .4rem 0; color: #bbc4dc; }
 .batch-status { min-height: 1.5rem; color: #dffdf3; }
 .batch-completed { margin-bottom: 0; color: #aeb8d1; }
-.batch-selector { display: flex; gap: .55rem; align-items: center; margin: 0 0 .75rem; color: #ffd39b; }
-.batch-selector input { width: auto; }
+.batch-selector { display: flex; justify-content: flex-start; gap: .55rem; align-items: center; margin: 0 0 .75rem; color: #ffd39b; }
+.batch-selector > input[type="checkbox"] { width: 1rem; height: 1rem; flex: 0 0 1rem; margin: 0; padding: 0; }
 .planned-card { padding: 1rem; border: 1px solid #3d4664; border-radius: 12px; background: #0b0f19; }
 .planned-card textarea { min-height: 90px; }
 .status-badge { display: inline-block; padding: .25rem .55rem; border-radius: 999px; background: #2a324b; color: #8ef4d2; font-size: .8rem; font-weight: 800; }

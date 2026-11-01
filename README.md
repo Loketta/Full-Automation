@@ -44,6 +44,33 @@ On startup, existing top-level `.mp3` files in `output/` are imported without ch
 
 Deletion requires browser confirmation and removes the MP3 plus its metadata. During deletion, audio is first moved to a private recovery filename inside `output/`; metadata is then committed before the recovery file is removed. A failed metadata write restores the MP3, while interrupted rollback or cleanup is recovered on the next startup. The server accepts only plain `.mp3` filenames that resolve directly inside `output/`; it will not delete paths outside that folder.
 
+## Themed music projects
+
+Projects organise an overarching musical theme and an ordered list of planned tracks. Each plan stores a title, musical direction, complete Lyria prompt, Pending/Generated status, and a link to its generated Track Library entry. Project metadata is stored locally in the ignored `output/projects.json` file and survives restarts.
+
+You can create projects manually or import a JSON plan prepared by ChatGPT. Import is local parsing only: it makes no AI or Lyria request. Review and edit every pending title and prompt before choosing **Generate this track**; the normal paid-action confirmation and one-request/no-retry rules still apply. Deleting a project or planned-track record never deletes its generated MP3.
+
+### Project import schema, version 1
+
+Imports must be valid UTF-8 JSON no larger than 128 KB, with 1–100 tracks. Project names are 1–100 characters, themes 1–2,000, track titles 1–120, directions 1–1,000, and prompts 10–2,000 characters.
+
+```json
+{
+  "version": 1,
+  "name": "Night City — Total Warfare",
+  "theme": "Aggressive instrumental cyberpunk industrial techno.",
+  "tracks": [
+    {
+      "title": "Chrome Requiem",
+      "direction": "Relentless mechanical percussion and distorted bass.",
+      "prompt": "Instrumental cyberpunk industrial techno with mechanical percussion and distorted bass. No vocals."
+    }
+  ]
+}
+```
+
+The browser includes a downloadable complete example at `public/examples/project-import-v1.json` and a formal JSON Schema at `public/examples/project-import-v1.schema.json`.
+
 ## Test offline
 
 ```powershell
@@ -53,6 +80,8 @@ npm test
 Tests use mocked Lyria responses, need no API key, make no network requests, and spend no API credit.
 
 Library tests use temporary folders and cover existing-file imports, idempotent scans, persistence across restart, renaming, review status, deletion, atomic metadata output, and directory traversal protection.
+
+Project tests cover creation, persistence, ordered imports, validation, editing, generated-track linking and recovery, deletion without audio loss, reference reconciliation, and metadata-write failures. All project management and import tests are offline.
 
 ## GitHub Actions tests
 

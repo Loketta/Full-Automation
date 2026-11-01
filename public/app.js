@@ -512,6 +512,10 @@ async function loadLatestBatch(projectId) {
   if (!projectId) return;
   try {
     const data = await apiJson("/api/batches");
+    if (data.safety?.blocked) {
+      renderBatchSafety(data.safety);
+      return;
+    }
     const batch = data.batches.find((candidate) => candidate.projectId === projectId);
     if (!batch) return;
     renderBatch(batch);
@@ -531,6 +535,10 @@ async function refreshBatch() {
   try {
     const data = await apiJson(`/api/batches/${encodeURIComponent(activeBatchId)}`);
     renderBatch(data.batch);
+    if (data.safety?.blocked) {
+      renderBatchSafety(data.safety);
+      return;
+    }
     await Promise.all([loadProjects(projectSelect.value), loadLibrary()]);
     if (["approved", "running", "stopping"].includes(data.batch.status)) scheduleBatchPoll();
   } catch (error) {
@@ -550,6 +558,14 @@ function renderBatch(batch) {
   generateBatchButton.disabled = active;
   stopBatchButton.hidden = !active;
   stopBatchButton.disabled = batch.status === "stopping";
+}
+
+function renderBatchSafety(safety) {
+  activeBatchId = undefined;
+  clearTimeout(batchPollTimer);
+  generateBatchButton.disabled = true;
+  stopBatchButton.hidden = true;
+  batchStatus.textContent = safety.message;
 }
 
 function field(labelText, value, kind, maxLength) {

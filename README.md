@@ -77,6 +77,8 @@ For a selected project, choose between one and five Pending tracks and click **G
 
 The batch stops on its first generation or persistence failure and never retries. **Stop batch** prevents another request from starting after the current request finishes. A batch cannot overlap another batch or a single-track generation, and already-generated tracks are rejected. Batch state is stored in the ignored `output/batches.json`; an unfinished batch is marked Interrupted after a restart and is never resumed automatically. Review the Track Library, project status, and terminal diagnostics manually before authorising any further request after a failed or interrupted batch.
 
+If the batch runner itself exits unexpectedly, the server treats the outcome as uncertain, attempts to persist a terminal failure, and blocks all further paid generation for that server session. If even the failure record cannot be written, the in-memory block remains in place and the browser/API warns that saved batch metadata is not authoritative. Inspect the output folder and metadata before safely restarting; no request is retried or resumed automatically.
+
 ## Test offline
 
 ```powershell

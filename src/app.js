@@ -31,7 +31,7 @@ export function createApp({ client, library, projects, batches, outputDirectory,
 
   app.post("/api/generate", async (request, response) => {
     if (generationInProgress || batchCoordinator?.hasActive()) {
-      return response.status(409).json({ error: "A generation is already in progress. Wait for it to finish." });
+      return response.status(409).json({ error: generationBlockedMessage(batchCoordinator) });
     }
 
     try {
@@ -127,7 +127,7 @@ export function createApp({ client, library, projects, batches, outputDirectory,
 
   app.post("/api/projects/:projectId/tracks/:trackId/generate", async (request, response) => {
     if (generationInProgress || batchCoordinator?.hasActive()) {
-      return response.status(409).json({ error: "A generation is already in progress. Wait for it to finish." });
+      return response.status(409).json({ error: generationBlockedMessage(batchCoordinator) });
     }
     try {
       const { project, track } = projects.getTrack(request.params.projectId, request.params.trackId);
@@ -155,11 +155,17 @@ export function createApp({ client, library, projects, batches, outputDirectory,
   });
 
   if (batchCoordinator) {
-    app.get("/api/batches", (_request, response) => response.json({ batches: batchCoordinator.list() }));
+    app.get("/api/batches", (_request, response) => response.json({
+      batches: batchCoordinator.list(),
+      safety: batchCoordinator.safetyStatus(),
+    }));
 
     app.get("/api/batches/:batchId", (request, response) => {
       try {
-        return response.json({ batch: batchCoordinator.get(request.params.batchId) });
+        return response.json({
+          batch: batchCoordinator.get(request.params.batchId),
+          safety: batchCoordinator.safetyStatus(),
+        });
       } catch (error) {
         return sendBatchError(response, error, logger);
       }
@@ -277,6 +283,11 @@ function sendBatchError(response, error, logger) {
   if ([400, 404, 409].includes(error?.statusCode)) return response.status(error.statusCode).json({ error: error.message });
   logger.error("Batch operation failed:", { name: error?.name, message: error?.message });
   return response.status(500).json({ error: "Batch state could not be safely updated. No further request was started. Check the VS Code terminal." });
+}
+
+function generationBlockedMessage(batchCoordinator) {
+  return batchCoordinator?.safetyStatus()?.message
+    ?? "A generation is already in progress. Wait for it to finish.";
 }
 
 function sendProjectError(response, error, logger) {

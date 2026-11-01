@@ -51,6 +51,15 @@ async function waitForTerminal(coordinator, id) {
   throw new Error("Batch did not reach a terminal state.");
 }
 
+async function waitForSafetyBlock(coordinator) {
+  for (let attempts = 0; attempts < 100; attempts += 1) {
+    const safety = coordinator.safetyStatus();
+    if (safety?.blocked && safety.persistence !== "pending") return safety;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error("Coordinator did not enter its safety state.");
+}
+
 for (let size = 1; size <= MAX_BATCH_SIZE; size += 1) {
   test(`accepts a batch of ${size} and performs exactly ${size} sequential requests`, async (t) => {
     const { store, project, projects } = await fixture(t);
@@ -221,4 +230,59 @@ test("restart marks unfinished work interrupted and never resumes it", async (t)
   assert.equal(recovered.requestsStarted, 1);
   assert.equal(recovered.stopRequested, true);
   assert.equal(paidCalls, 0);
+});
+
+test("unexpected runner exceptions persist an uncertain failure and block further paid generation", async (t) => {
+  const { store, project, projects } = await fixture(t);
+  const originalUpdate = store.update.bind(store);
+  let updates = 0;
+  store.update = async (...args) => {
+    updates += 1;
+    if (updates === 3) throw new Error("unexpected completion bookkeeping failure");
+    if (updates === 4) throw new Error("normal failure handler also failed");
+    return originalUpdate(...args);
+  };
+  const logs = [];
+  const coordinator = new BatchCoordinator({
+    store, projects, logger: { error: (...values) => logs.push(values) },
+    generateTrack: async (_projectId, trackId) => ({ filename: `${trackId}.mp3`, libraryTrackId: `library-${trackId}` }),
+  });
+  const started = await coordinator.start(project.id, snapshot(project, 2));
+  const safety = await waitForSafetyBlock(coordinator);
+  const failed = coordinator.get(started.id);
+
+  assert.equal(safety.persistence, "persisted");
+  assert.equal(failed.status, "failed");
+  assert.equal(failed.outcomeUncertain, true);
+  assert.equal(failed.uncertainTrackId, "track-1");
+  assert.match(failed.failure, /manual/i);
+  assert.equal(coordinator.hasActive(), true);
+  await assert.rejects(() => coordinator.start(project.id, snapshot(project, 1, 1)), /blocked.*server session/i);
+  assert.match(JSON.stringify(logs), /terminated unexpectedly/);
+});
+
+test("failure to persist an unexpected runner failure leaves a conservative in-memory block", async (t) => {
+  const { store, project, projects } = await fixture(t);
+  const originalUpdate = store.update.bind(store);
+  let updates = 0;
+  store.update = async (...args) => {
+    updates += 1;
+    if (updates >= 3) throw new Error("batch metadata storage unavailable");
+    return originalUpdate(...args);
+  };
+  const logs = [];
+  const coordinator = new BatchCoordinator({
+    store, projects, logger: { error: (...values) => logs.push(values) },
+    generateTrack: async (_projectId, trackId) => ({ filename: `${trackId}.mp3`, libraryTrackId: `library-${trackId}` }),
+  });
+  const started = await coordinator.start(project.id, snapshot(project, 2));
+  const safety = await waitForSafetyBlock(coordinator);
+
+  assert.equal(safety.persistence, "unavailable");
+  assert.equal(safety.outcomeUncertain, true);
+  assert.match(safety.message, /not.*authoritative/i);
+  assert.equal(coordinator.get(started.id).status, "running");
+  assert.equal(coordinator.hasActive(), true);
+  await assert.rejects(() => coordinator.start(project.id, snapshot(project, 1, 1)), /blocked.*server session/i);
+  assert.match(JSON.stringify(logs), /remains blocked/);
 });

@@ -153,10 +153,15 @@ export class BatchCoordinator {
     this.logger = logger;
     this.diagnoseError = diagnoseError;
     this.running = new Set();
+    this.safetyBlock = undefined;
   }
 
   hasActive() {
-    return Boolean(this.store.active());
+    return Boolean(this.safetyBlock || this.store.active());
+  }
+
+  safetyStatus() {
+    return this.safetyBlock ? structuredClone(this.safetyBlock) : undefined;
   }
 
   list() {
@@ -168,12 +173,17 @@ export class BatchCoordinator {
   }
 
   async start(projectId, expected) {
+    if (this.safetyBlock) throw new BatchConflictError(this.safetyBlock.message);
     const approval = validateBatchApproval(this.projects.list(), projectId, expected);
     const batch = await this.store.create(approval);
     this.running.add(batch.id);
-    queueMicrotask(() => this.#run(batch.id).catch((error) => {
-      this.logger.error("Batch runner terminated unexpectedly:", this.diagnoseError(error));
-    }));
+    queueMicrotask(async () => {
+      try {
+        await this.#run(batch.id);
+      } catch (error) {
+        await this.#handleUnexpectedFailure(batch.id, error);
+      }
+    });
     return batch;
   }
 
@@ -266,6 +276,35 @@ export class BatchCoordinator {
       batch.finishedAt = new Date().toISOString();
       delete batch.currentTrackId;
     });
+  }
+
+  async #handleUnexpectedFailure(id, error) {
+    const diagnostic = this.diagnoseError(error);
+    const baseMessage = "The batch runner stopped unexpectedly and the outcome may be uncertain. All further paid generation is blocked for this server session. Manually inspect the Track Library, project metadata, output files, and terminal diagnostic, then safely restart the application before authorising anything else.";
+    this.safetyBlock = {
+      blocked: true,
+      batchId: id,
+      outcomeUncertain: true,
+      persistence: "pending",
+      message: baseMessage,
+    };
+    this.logger.error("Batch runner terminated unexpectedly; paid generation is now blocked:", diagnostic);
+
+    try {
+      await this.store.update(id, (batch) => {
+        batch.status = "failed";
+        batch.stopRequested = true;
+        batch.outcomeUncertain = true;
+        batch.failure = baseMessage;
+        batch.finishedAt = new Date().toISOString();
+        if (batch.currentTrackId) batch.uncertainTrackId = batch.currentTrackId;
+      });
+      this.safetyBlock.persistence = "persisted";
+    } catch (persistenceError) {
+      this.safetyBlock.persistence = "unavailable";
+      this.safetyBlock.message = `${baseMessage} The failure status could not be persisted, so do not treat the saved batch file as authoritative.`;
+      this.logger.error("Could not persist the unexpected batch failure; paid generation remains blocked:", this.diagnoseError(persistenceError));
+    }
   }
 }
 

@@ -24,3 +24,15 @@ export function generationSnapshot(saved) {
     prompt: saved.prompt,
   };
 }
+
+export function configurePlannedTrackMessage(element) {
+  element.className = "planned-track-message";
+  element.setAttribute("role", "status");
+  element.setAttribute("aria-live", "polite");
+  element.setAttribute("aria-atomic", "true");
+  return element;
+}
+
+export function showPlannedTrackMessage(element, message) {
+  element.textContent = message;
+}

@@ -1,8 +1,10 @@
 import {
   buildPaidGenerationConfirmation,
+  configurePlannedTrackMessage,
   generationSnapshot,
   hasUnsavedPlannedTrackChanges,
   plannedTrackDraft,
+  showPlannedTrackMessage,
 } from "./planned-track-state.js";
 
 const form = document.querySelector("#generate-form");
@@ -326,6 +328,7 @@ function renderSelectedProject(id) {
 function createPlannedTrackCard(project, track, index) {
   const card = document.createElement("article");
   card.className = "planned-card";
+  card.dataset.plannedTrackId = track.id;
   const heading = document.createElement("div");
   heading.className = "library-heading-row";
   const number = document.createElement("strong");
@@ -343,6 +346,8 @@ function createPlannedTrackCard(project, track, index) {
 
   const actions = document.createElement("div");
   actions.className = "track-actions";
+  const cardMessage = configurePlannedTrackMessage(document.createElement("p"));
+  cardMessage.id = `planned-track-message-${track.id}`;
   if (!locked) {
     const save = actionButton("Save plan", "secondary compact", async () => {
       try {
@@ -358,12 +363,15 @@ function createPlannedTrackCard(project, track, index) {
     const generate = actionButton("Generate this track", "compact", async () => {
       const draft = plannedTrackDraft(title.control.value, direction.control.value, promptField.control.value);
       if (hasUnsavedPlannedTrackChanges(track, draft)) {
-        projectStatus.textContent = "Save this planned track before generating. The paid request was not started.";
+        showPlannedTrackMessage(cardMessage, "Unsaved changes detected. Save this planned track before generating. No paid request was made.");
         return;
       }
-      if (!window.confirm(buildPaidGenerationConfirmation(track))) return;
+      if (!window.confirm(buildPaidGenerationConfirmation(track))) {
+        showPlannedTrackMessage(cardMessage, "Generation cancelled. No paid request was made.");
+        return;
+      }
       generate.disabled = true;
-      projectStatus.textContent = "Generating one planned track…";
+      showPlannedTrackMessage(cardMessage, "Generating one planned track… Keep this page open.");
       try {
         const data = await apiJson(`/api/projects/${project.id}/tracks/${track.id}/generate`, {
           method: "POST",
@@ -375,8 +383,11 @@ function createPlannedTrackCard(project, track, index) {
         download.download = data.filename;
         result.hidden = false;
         await Promise.all([loadProjects(project.id), loadLibrary()]);
-        projectStatus.textContent = data.warning || "Track generated, linked, and saved in the Track Library.";
-      } catch (error) { projectStatus.textContent = error.message; }
+        const refreshedMessage = document.getElementById(`planned-track-message-${track.id}`);
+        if (refreshedMessage) {
+          showPlannedTrackMessage(refreshedMessage, data.warning || "Track generated, linked, and saved in the Track Library.");
+        }
+      } catch (error) { showPlannedTrackMessage(cardMessage, error.message); }
       finally { generate.disabled = false; }
     });
     actions.append(save, generate);
@@ -394,9 +405,9 @@ function createPlannedTrackCard(project, track, index) {
   if (locked) {
     const libraryNote = document.createElement("p");
     libraryNote.textContent = "Generated audio is available in the Track Library below.";
-    card.append(heading, title.wrapper, direction.wrapper, promptField.wrapper, libraryNote, actions);
+    card.append(heading, title.wrapper, direction.wrapper, promptField.wrapper, libraryNote, actions, cardMessage);
   } else {
-    card.append(heading, title.wrapper, direction.wrapper, promptField.wrapper, actions);
+    card.append(heading, title.wrapper, direction.wrapper, promptField.wrapper, actions, cardMessage);
   }
   return card;
 }

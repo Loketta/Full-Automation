@@ -71,6 +71,28 @@ test("metadata file remains valid JSON after successive writes", async (t) => {
   assert.equal(metadata.tracks[0].reviewStatus, "Reject");
 });
 
+test("review status remains synchronized with persisted metadata when a write fails", async (t) => {
+  const { output, dependencies } = await fixture(t);
+  let fail = false;
+  const library = new TrackLibrary(output, {
+    ...dependencies,
+    rename: async (source, destination) => {
+      if (fail && path.basename(destination) === "library.json") throw new Error("mock review persistence failure");
+      return fsRename(source, destination);
+    },
+  });
+  await library.initialize();
+  await writeFile(path.join(output, "review-sync.mp3"), "audio");
+  const track = await library.registerGenerated({ filename: "review-sync.mp3", prompt: "Review synchronization prompt" });
+  fail = true;
+  await assert.rejects(() => library.update(track.id, { reviewStatus: "Reject" }), /mock review persistence failure/);
+  assert.equal(library.get(track.id).reviewStatus, "Unreviewed");
+
+  const restarted = new TrackLibrary(output, dependencies);
+  await restarted.initialize();
+  assert.equal(restarted.get(track.id).reviewStatus, "Unreviewed");
+});
+
 test("deletion removes both MP3 and metadata", async (t) => {
   const { output, dependencies } = await fixture(t);
   const library = new TrackLibrary(output, dependencies);

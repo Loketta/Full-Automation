@@ -41,7 +41,7 @@ export class TrackLibrary {
     return this.#snapshot();
   }
 
-  registerGenerated({ filename, prompt, title, projectId, plannedTrackId }) {
+  registerGenerated({ filename, prompt, title, projectId, plannedTrackId, replacementForLibraryTrackId }) {
     return this.#exclusive(async () => {
       this.#resolveMp3Path(filename);
       const existing = this.data.tracks.find((track) => sameFilename(track.filename, filename));
@@ -57,15 +57,51 @@ export class TrackLibrary {
         track.projectId = projectId;
         track.plannedTrackId = plannedTrackId;
       }
+      if (replacementForLibraryTrackId) track.replacementForLibraryTrackId = replacementForLibraryTrackId;
       this.data.tracks.push(track);
-      await this.#persist();
+      try {
+        await this.#persist();
+      } catch (error) {
+        this.data.tracks.pop();
+        throw error;
+      }
       return structuredClone(track);
+    });
+  }
+
+  get(id) {
+    return structuredClone(this.#findTrack(id));
+  }
+
+  finalizeReplacement(id) {
+    return this.#exclusive(async () => {
+      const track = this.#findTrack(id);
+      if (!track.replacementForLibraryTrackId) return structuredClone(track);
+      const old = track.replacementForLibraryTrackId;
+      delete track.replacementForLibraryTrackId;
+      try {
+        await this.#persist();
+      } catch (error) {
+        track.replacementForLibraryTrackId = old;
+        throw error;
+      }
+      return structuredClone(track);
+    });
+  }
+
+  removeUnregisteredFile(filename) {
+    return this.#exclusive(async () => {
+      if (this.data.tracks.some((track) => sameFilename(track.filename, filename))) {
+        throw new LibraryValidationError("Cannot remove an MP3 that is registered in the Track Library.");
+      }
+      await this.fs.rm(this.#resolveMp3Path(filename), { force: true });
     });
   }
 
   update(id, changes) {
     return this.#exclusive(async () => {
       const track = this.#findTrack(id);
+      const before = structuredClone(track);
       if (Object.hasOwn(changes, "title")) {
         const title = normalizeTitle(changes.title);
         if (!title) throw new LibraryValidationError("Title must be between 1 and 120 characters.");
@@ -77,7 +113,12 @@ export class TrackLibrary {
         }
         track.reviewStatus = changes.reviewStatus;
       }
-      await this.#persist();
+      try {
+        await this.#persist();
+      } catch (error) {
+        Object.assign(track, before);
+        throw error;
+      }
       return structuredClone(track);
     });
   }

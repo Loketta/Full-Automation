@@ -5,6 +5,7 @@ import { createApp } from "./app.js";
 import { createLyriaClient } from "./lyria.js";
 import { TrackLibrary } from "./library.js";
 import { ProjectStore } from "./projects.js";
+import { BatchStore } from "./batches.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const port = Number.parseInt(process.env.PORT ?? "3000", 10);
@@ -17,10 +18,13 @@ try {
   const projects = new ProjectStore(outputDirectory);
   await projects.initialize();
   await projects.reconcileLibraryLinks(library.list());
+  const batches = new BatchStore(outputDirectory);
+  await batches.initialize();
   const app = createApp({
     client,
     library,
     projects,
+    batches,
     apiKey: process.env.GEMINI_API_KEY,
     outputDirectory,
     publicDirectory: path.join(projectRoot, "public"),

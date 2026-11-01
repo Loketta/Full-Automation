@@ -29,6 +29,63 @@
       <a id="download" class="download" download>Download MP3</a>
     </section>
 
+    <section class="projects-section" aria-labelledby="projects-heading">
+      <p class="eyebrow">THEMED COLLECTIONS</p>
+      <h2 id="projects-heading">Music projects</h2>
+      <p>Create a project here or import a version 1 JSON plan prepared by ChatGPT. Importing is entirely local and never generates music.</p>
+
+      <div class="project-tools">
+        <form id="create-project-form" class="nested-form">
+          <h3>New project</h3>
+          <label for="new-project-name">Project name</label>
+          <input id="new-project-name" maxlength="100" required>
+          <label for="new-project-theme">Musical theme</label>
+          <textarea id="new-project-theme" maxlength="2000" required></textarea>
+          <button type="submit">Create project</button>
+        </form>
+
+        <form id="import-project-form" class="nested-form">
+          <h3>Import ChatGPT JSON</h3>
+          <label for="project-file">Version 1 project file (maximum 128 KB)</label>
+          <input id="project-file" type="file" accept="application/json,.json" required>
+          <button type="submit">Import project</button>
+          <a class="text-link" href="/examples/project-import-v1.json" download>Download example JSON</a>
+          <a class="text-link" href="/examples/project-import-v1.schema.json" download>Download JSON Schema</a>
+        </form>
+      </div>
+
+      <p id="project-status" role="status" aria-live="polite"></p>
+      <label for="project-select">Selected project</label>
+      <select id="project-select"><option value="">Choose a project</option></select>
+
+      <div id="project-editor" hidden>
+        <div class="project-editor-actions">
+          <button id="save-project" type="button">Save project details</button>
+          <button id="delete-project" class="danger" type="button">Delete project only</button>
+        </div>
+        <label for="project-name">Project name</label>
+        <input id="project-name" maxlength="100">
+        <label for="project-theme">Overarching musical theme</label>
+        <textarea id="project-theme" maxlength="2000"></textarea>
+        <p id="project-created" class="track-meta"></p>
+        <p class="warning"><strong>Project deletion keeps generated audio.</strong> MP3s remain available in the Track Library unless deleted there separately.</p>
+
+        <h3>Planned tracks</h3>
+        <div id="planned-track-list" class="planned-track-list"></div>
+
+        <form id="add-planned-track-form" class="nested-form">
+          <h3>Add planned track</h3>
+          <label for="planned-title">Title</label>
+          <input id="planned-title" maxlength="120" required>
+          <label for="planned-direction">Musical direction</label>
+          <textarea id="planned-direction" maxlength="1000" required></textarea>
+          <label for="planned-prompt">Complete Lyria prompt</label>
+          <textarea id="planned-prompt" minlength="10" maxlength="2000" required></textarea>
+          <button type="submit">Add pending track</button>
+        </form>
+      </div>
+    </section>
+
     <section class="library-section" aria-labelledby="library-heading">
       <div class="library-heading-row">
         <div>
@@ -41,6 +98,6 @@
       <div id="track-list" class="track-list"></div>
     </section>
   </main>
-  <script src="/app.js" defer></script>
+  <script type="module" src="/app.js"></script>
 </body>
 </html>

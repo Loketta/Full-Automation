@@ -41,7 +41,7 @@ export class TrackLibrary {
     return this.#snapshot();
   }
 
-  registerGenerated({ filename, prompt, title }) {
+  registerGenerated({ filename, prompt, title, projectId, plannedTrackId }) {
     return this.#exclusive(async () => {
       this.#resolveMp3Path(filename);
       const existing = this.data.tracks.find((track) => sameFilename(track.filename, filename));
@@ -53,6 +53,10 @@ export class TrackLibrary {
         prompt: typeof prompt === "string" && prompt.trim() ? prompt.trim() : IMPORTED_PROMPT,
         createdAt: this.now().toISOString(),
       });
+      if (projectId && plannedTrackId) {
+        track.projectId = projectId;
+        track.plannedTrackId = plannedTrackId;
+      }
       this.data.tracks.push(track);
       await this.#persist();
       return structuredClone(track);

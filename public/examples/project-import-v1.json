@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "name": "Night City — Total Warfare",
+  "theme": "Aggressive instrumental cyberpunk industrial techno with distorted bass, mechanical percussion and dark synthesizers.",
+  "tracks": [
+    {
+      "title": "Chrome Requiem",
+      "direction": "Relentless mechanical percussion and heavy distorted bass.",
+      "prompt": "Instrumental cyberpunk industrial techno. Relentless mechanical percussion, heavy distorted bass, aggressive synthesizers and a dark dystopian atmosphere. No vocals."
+    },
+    {
+      "title": "Blackwall Breach",
+      "direction": "Ominous buildup followed by explosive industrial rhythms.",
+      "prompt": "Instrumental dark cyberpunk techno with an ominous cinematic introduction, escalating mechanical rhythms, distorted bass and an explosive industrial climax. No vocals."
+    }
+  ]
+}

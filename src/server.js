@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { createApp } from "./app.js";
 import { createLyriaClient } from "./lyria.js";
 import { TrackLibrary } from "./library.js";
+import { ProjectStore } from "./projects.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const port = Number.parseInt(process.env.PORT ?? "3000", 10);
@@ -13,9 +14,13 @@ try {
   const outputDirectory = path.join(projectRoot, "output");
   const library = new TrackLibrary(outputDirectory);
   await library.initialize();
+  const projects = new ProjectStore(outputDirectory);
+  await projects.initialize();
+  await projects.reconcileLibraryLinks(library.list());
   const app = createApp({
     client,
     library,
+    projects,
     apiKey: process.env.GEMINI_API_KEY,
     outputDirectory,
     publicDirectory: path.join(projectRoot, "public"),

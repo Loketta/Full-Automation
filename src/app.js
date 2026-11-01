@@ -4,7 +4,7 @@ import { validatePrompt, ValidationError } from "./prompt.js";
 import { createSafeDiagnostic, generateInstrumental, toPublicError } from "./lyria.js";
 import { saveMp3 } from "./output.js";
 
-export function createApp({ client, outputDirectory, publicDirectory, logger = console, apiKey = "" }) {
+export function createApp({ client, library, outputDirectory, publicDirectory, logger = console, apiKey = "" }) {
   const app = express();
   let generationInProgress = false;
 
@@ -30,15 +30,47 @@ export function createApp({ client, outputDirectory, publicDirectory, logger = c
       generationInProgress = true;
       const audio = await generateInstrumental(client, prompt);
       const filename = await saveMp3(audio, outputDirectory);
+      let track;
+      let libraryWarning;
+      try {
+        track = await library.registerGenerated({ filename, prompt });
+      } catch (error) {
+        logger.error("MP3 saved, but track metadata could not be persisted:", { name: error?.name, message: error?.message });
+        libraryWarning = "The MP3 was saved, but its metadata could not be written. Do not generate again; restart the app to import the saved MP3.";
+      }
       return response.status(201).json({
         filename,
         audioUrl: `/audio/${encodeURIComponent(filename)}`,
+        track,
+        warning: libraryWarning,
       });
     } catch (error) {
       const publicError = reportGenerationError(error, { logger, apiKey });
       return response.status(publicError.status).json({ error: publicError.message });
     } finally {
       generationInProgress = false;
+    }
+  });
+
+  app.get("/api/tracks", (_request, response) => {
+    return response.json({ tracks: library.list() });
+  });
+
+  app.patch("/api/tracks/:id", async (request, response) => {
+    try {
+      const track = await library.update(request.params.id, request.body ?? {});
+      return response.json({ track });
+    } catch (error) {
+      return sendLibraryError(response, error, logger);
+    }
+  });
+
+  app.delete("/api/tracks/:id", async (request, response) => {
+    try {
+      await library.delete(request.params.id);
+      return response.status(204).end();
+    } catch (error) {
+      return sendLibraryError(response, error, logger);
     }
   });
 
@@ -50,6 +82,14 @@ export function createApp({ client, outputDirectory, publicDirectory, logger = c
   });
 
   return app;
+}
+
+function sendLibraryError(response, error, logger) {
+  if (error?.statusCode === 400 || error?.statusCode === 404) {
+    return response.status(error.statusCode).json({ error: error.message });
+  }
+  logger.error("Track library operation failed:", { name: error?.name, message: error?.message });
+  return response.status(500).json({ error: "The local track library could not be updated. Check the VS Code terminal." });
 }
 
 export function reportGenerationError(error, { logger = console, apiKey = "" } = {}) {

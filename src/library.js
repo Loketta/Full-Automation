@@ -30,6 +30,7 @@ export class TrackLibrary {
     return this.#exclusive(async () => {
       await this.fs.mkdir(this.outputDirectory, { recursive: true });
       this.data = await this.#readMetadata();
+      await this.#recoverPendingDeletions();
       const changed = await this.#importUnregisteredMp3s();
       if (changed) await this.#persist();
       return this.#snapshot();
@@ -83,11 +84,41 @@ export class TrackLibrary {
       if (index < 0) throw new TrackNotFoundError();
       const track = this.data.tracks[index];
       const audioPath = this.#resolveMp3Path(track.filename);
+      if (!isSafeTrackId(track.id)) throw new LibraryValidationError("Invalid track ID.");
+      const quarantinePath = path.join(this.outputDirectory, `.deleting-${track.id}.mp3`);
 
-      await this.fs.rm(audioPath, { force: true });
+      // Keep the audio recoverable until its metadata removal is durable.
+      await this.fs.rename(audioPath, quarantinePath);
       this.data.tracks.splice(index, 1);
-      await this.#persist();
-      return structuredClone(track);
+      try {
+        await this.#persist();
+      } catch (persistError) {
+        this.data.tracks.splice(index, 0, track);
+        try {
+          await this.fs.rename(quarantinePath, audioPath);
+        } catch (rollbackError) {
+          throw new DeletionTransactionError(
+            "Track deletion was not committed and the MP3 is queued for recovery on the next restart.",
+            { cause: persistError, rollbackError, recoveryPending: true },
+          );
+        }
+        throw new DeletionTransactionError(
+          "Track deletion was not committed because metadata could not be saved. The MP3 was restored.",
+          { cause: persistError, recoveryPending: false },
+        );
+      }
+
+      try {
+        await this.fs.rm(quarantinePath);
+        return { track: structuredClone(track), cleanupPending: false };
+      } catch (cleanupError) {
+        return {
+          track: structuredClone(track),
+          cleanupPending: true,
+          warning: "Track metadata was deleted. Audio cleanup is pending and will finish when the app next starts.",
+          cleanupError,
+        };
+      }
     });
   }
 
@@ -117,7 +148,7 @@ export class TrackLibrary {
     const entries = await this.fs.readdir(this.outputDirectory, { withFileTypes: true });
     let changed = false;
     for (const entry of entries) {
-      if (!entry.isFile() || path.extname(entry.name).toLowerCase() !== ".mp3") continue;
+      if (!entry.isFile() || entry.name.startsWith(".deleting-") || path.extname(entry.name).toLowerCase() !== ".mp3") continue;
       if (this.data.tracks.some((track) => sameFilename(track.filename, entry.name))) continue;
 
       const audioPath = this.#resolveMp3Path(entry.name);
@@ -131,6 +162,39 @@ export class TrackLibrary {
       changed = true;
     }
     return changed;
+  }
+
+  async #recoverPendingDeletions() {
+    const entries = await this.fs.readdir(this.outputDirectory, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isFile() || !entry.name.startsWith(".deleting-") || !entry.name.endsWith(".mp3")) continue;
+      const id = entry.name.slice(".deleting-".length, -".mp3".length);
+      if (!isSafeTrackId(id)) continue;
+
+      const quarantinePath = path.join(this.outputDirectory, entry.name);
+      const track = this.data.tracks.find((candidate) => candidate.id === id);
+      if (!track) {
+        await this.fs.rm(quarantinePath);
+        continue;
+      }
+
+      const audioPath = this.#resolveMp3Path(track.filename);
+      if (await this.#pathExists(audioPath)) {
+        await this.fs.rm(quarantinePath);
+      } else {
+        await this.fs.rename(quarantinePath, audioPath);
+      }
+    }
+  }
+
+  async #pathExists(filePath) {
+    try {
+      await this.fs.stat(filePath);
+      return true;
+    } catch (error) {
+      if (error?.code === "ENOENT") return false;
+      throw error;
+    }
   }
 
   #createTrack({ filename, title, prompt, createdAt }) {
@@ -195,9 +259,13 @@ function sameFilename(left, right) {
 }
 
 function isValidStoredTrack(track) {
-  return track && typeof track.id === "string" && typeof track.filename === "string"
+  return track && isSafeTrackId(track.id) && typeof track.filename === "string"
     && typeof track.title === "string" && typeof track.prompt === "string"
     && typeof track.createdAt === "string" && REVIEW_STATUSES.includes(track.reviewStatus);
+}
+
+function isSafeTrackId(id) {
+  return typeof id === "string" && /^[a-zA-Z0-9-]{1,64}$/.test(id);
 }
 
 export class LibraryValidationError extends Error {
@@ -211,5 +279,15 @@ export class TrackNotFoundError extends Error {
   constructor() {
     super("Track not found.");
     this.statusCode = 404;
+  }
+}
+
+export class DeletionTransactionError extends Error {
+  constructor(message, details = {}) {
+    super(message, { cause: details.cause });
+    this.name = "DeletionTransactionError";
+    this.statusCode = 500;
+    this.recoveryPending = details.recoveryPending ?? false;
+    this.rollbackError = details.rollbackError;
   }
 }

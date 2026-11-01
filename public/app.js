@@ -142,8 +142,12 @@ function createTrackCard(track) {
   deleteTrack.addEventListener("click", async () => {
     if (!window.confirm(`Permanently delete “${track.title}” and its MP3? This cannot be undone.`)) return;
     const response = await fetch(`/api/tracks/${encodeURIComponent(track.id)}`, { method: "DELETE" });
-    if (response.ok) return loadLibrary();
     const data = await response.json();
+    if (response.ok) {
+      await loadLibrary();
+      if (data.warning) libraryStatus.textContent = data.warning;
+      return;
+    }
     showCardMessage(card, data.error || "Could not delete track.");
   });
   actions.append(downloadTrack, deleteTrack);

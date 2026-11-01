@@ -42,7 +42,7 @@ The library loads automatically at startup and keeps its metadata in `output/lib
 
 On startup, existing top-level `.mp3` files in `output/` are imported without changing their audio. Imported tracks receive a title based on the filename and an “original prompt unavailable” note. Repeated starts do not create duplicates. Metadata updates use a temporary file and atomic rename to avoid partially written JSON.
 
-Deletion requires browser confirmation and removes the MP3 plus its metadata. The server accepts only plain `.mp3` filenames that resolve directly inside `output/`; it will not delete paths outside that folder.
+Deletion requires browser confirmation and removes the MP3 plus its metadata. During deletion, audio is first moved to a private recovery filename inside `output/`; metadata is then committed before the recovery file is removed. A failed metadata write restores the MP3, while interrupted rollback or cleanup is recovered on the next startup. The server accepts only plain `.mp3` filenames that resolve directly inside `output/`; it will not delete paths outside that folder.
 
 ## Test offline
 

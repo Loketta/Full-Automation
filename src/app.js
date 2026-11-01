@@ -67,8 +67,14 @@ export function createApp({ client, library, outputDirectory, publicDirectory, l
 
   app.delete("/api/tracks/:id", async (request, response) => {
     try {
-      await library.delete(request.params.id);
-      return response.status(204).end();
+      const result = await library.delete(request.params.id);
+      if (result.cleanupPending) {
+        logger.error("Track deletion cleanup is pending until restart:", {
+          trackId: request.params.id,
+          message: result.cleanupError?.message,
+        });
+      }
+      return response.json({ deleted: true, warning: result.warning });
     } catch (error) {
       return sendLibraryError(response, error, logger);
     }
@@ -89,6 +95,9 @@ function sendLibraryError(response, error, logger) {
     return response.status(error.statusCode).json({ error: error.message });
   }
   logger.error("Track library operation failed:", { name: error?.name, message: error?.message });
+  if (error?.name === "DeletionTransactionError") {
+    return response.status(500).json({ error: error.message });
+  }
   return response.status(500).json({ error: "The local track library could not be updated. Check the VS Code terminal." });
 }
 

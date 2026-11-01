@@ -1,3 +1,10 @@
+import {
+  buildPaidGenerationConfirmation,
+  generationSnapshot,
+  hasUnsavedPlannedTrackChanges,
+  plannedTrackDraft,
+} from "./planned-track-state.js";
+
 const form = document.querySelector("#generate-form");
 const prompt = document.querySelector("#prompt");
 const button = document.querySelector("#generate-button");
@@ -349,11 +356,20 @@ function createPlannedTrackCard(project, track, index) {
       } catch (error) { projectStatus.textContent = error.message; }
     });
     const generate = actionButton("Generate this track", "compact", async () => {
-      if (!window.confirm(`This makes exactly one paid Lyria 3.5 request for “${title.control.value}”. Generate now?`)) return;
+      const draft = plannedTrackDraft(title.control.value, direction.control.value, promptField.control.value);
+      if (hasUnsavedPlannedTrackChanges(track, draft)) {
+        projectStatus.textContent = "Save this planned track before generating. The paid request was not started.";
+        return;
+      }
+      if (!window.confirm(buildPaidGenerationConfirmation(track))) return;
       generate.disabled = true;
       projectStatus.textContent = "Generating one planned track…";
       try {
-        const data = await apiJson(`/api/projects/${project.id}/tracks/${track.id}/generate`, { method: "POST" });
+        const data = await apiJson(`/api/projects/${project.id}/tracks/${track.id}/generate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ expected: generationSnapshot(track) }),
+        });
         player.src = data.audioUrl;
         download.href = data.audioUrl;
         download.download = data.filename;

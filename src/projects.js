@@ -255,6 +255,17 @@ export function validateImport(payload) {
   };
 }
 
+export function assertGenerationSnapshot(track, expected) {
+  if (!expected || typeof expected !== "object" || Array.isArray(expected)) {
+    throw new ProjectConflictError("The saved track could not be verified. Refresh the project before generating.");
+  }
+  const fields = ["title", "direction", "prompt"];
+  const matches = fields.every((field) => typeof expected[field] === "string" && expected[field] === track[field]);
+  if (!matches) {
+    throw new ProjectConflictError("This planned track changed after it was displayed. Refresh and review the saved title and prompt before generating.");
+  }
+}
+
 function rejectUnknownFields(value, allowed, label) {
   const unknown = Object.keys(value).filter((key) => !allowed.includes(key));
   if (unknown.length) throw new ProjectValidationError(`${label} contains unsupported field${unknown.length === 1 ? "" : "s"}: ${unknown.join(", ")}.`);
@@ -292,5 +303,13 @@ export class ProjectNotFoundError extends Error {
     super(message);
     this.name = "ProjectNotFoundError";
     this.statusCode = 404;
+  }
+}
+
+export class ProjectConflictError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "ProjectConflictError";
+    this.statusCode = 409;
   }
 }

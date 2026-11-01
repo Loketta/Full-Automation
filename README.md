@@ -48,7 +48,7 @@ Deletion requires browser confirmation and removes the MP3 plus its metadata. Du
 
 Projects organise an overarching musical theme and an ordered list of planned tracks. Each plan stores a title, musical direction, complete Lyria prompt, Pending/Generated status, and a link to its generated Track Library entry. Project metadata is stored locally in the ignored `output/projects.json` file and survives restarts.
 
-You can create projects manually or import a JSON plan prepared by ChatGPT. Import is local parsing only: it makes no AI or Lyria request. Review and edit every pending title and prompt before choosing **Generate this track**; the normal paid-action confirmation and one-request/no-retry rules still apply. Deleting a project or planned-track record never deletes its generated MP3.
+You can create projects manually or import a JSON plan prepared by ChatGPT. Import is local parsing only: it makes no AI or Lyria request. Review and edit every pending title and prompt, then save the plan before choosing **Generate this track**. Generation is blocked while any title, direction, or prompt edit is unsaved. The confirmation displays the exact saved title and full prompt, and the server verifies that snapshot again before making the normal one-request/no-retry paid call. Deleting a project or planned-track record never deletes its generated MP3.
 
 ### Project import schema, version 1
 

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { mkdir, mkdtemp, readFile, rename as fsRename, rm, writeFile } from "node:fs/promises";
 import { TrackLibrary } from "../src/library.js";
-import { MAX_IMPORT_BYTES, ProjectStore, ProjectValidationError, validateImport } from "../src/projects.js";
+import { assertGenerationSnapshot, MAX_IMPORT_BYTES, ProjectStore, ProjectValidationError, validateImport } from "../src/projects.js";
 
 async function fixture(t) {
   const root = await mkdtemp(path.join(process.cwd(), ".test-tmp-projects-"));
@@ -210,4 +210,23 @@ test("project metadata write failure rolls ordinary edits back", async (t) => {
   fail = true;
   await assert.rejects(() => store.update(project.id, { name: "Lost edit" }), /write failed/);
   assert.equal(store.list()[0].name, "Safe");
+});
+
+test("server snapshot verification blocks stale paid-generation data", () => {
+  const track = {
+    title: "Saved",
+    direction: "Saved direction",
+    prompt: "Saved instrumental generation prompt.",
+  };
+  assert.doesNotThrow(() => assertGenerationSnapshot(track, { ...track }));
+  let paidCalls = 0;
+  assert.throws(
+    () => {
+      assertGenerationSnapshot(track, { ...track, prompt: "Unsaved edited prompt" });
+      paidCalls += 1;
+    },
+    (error) => error.statusCode === 409 && /changed after it was displayed/.test(error.message),
+  );
+  assert.equal(paidCalls, 0);
+  assert.throws(() => assertGenerationSnapshot(track, undefined), (error) => error.statusCode === 409);
 });

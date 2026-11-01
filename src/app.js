@@ -3,6 +3,7 @@ import express from "express";
 import { validatePrompt, ValidationError } from "./prompt.js";
 import { createSafeDiagnostic, generateInstrumental, toPublicError } from "./lyria.js";
 import { saveMp3 } from "./output.js";
+import { assertGenerationSnapshot } from "./projects.js";
 
 export function createApp({ client, library, projects, outputDirectory, publicDirectory, logger = console, apiKey = "" }) {
   const app = express();
@@ -125,6 +126,7 @@ export function createApp({ client, library, projects, outputDirectory, publicDi
       if (track.status === "Generated") {
         return response.status(409).json({ error: "This planned track is already generated. Play it in the Track Library." });
       }
+      assertGenerationSnapshot(track, request.body?.expected);
       const generationPrompt = validatePrompt(track.prompt);
       generationInProgress = true;
       const audio = await generateInstrumental(client, generationPrompt);
@@ -166,7 +168,7 @@ export function createApp({ client, library, projects, outputDirectory, publicDi
         warning,
       });
     } catch (error) {
-      if (error?.statusCode === 404 || error?.statusCode === 400) return sendProjectError(response, error, logger);
+      if ([400, 404, 409].includes(error?.statusCode)) return sendProjectError(response, error, logger);
       const publicError = reportGenerationError(error, { logger, apiKey });
       return response.status(publicError.status).json({ error: publicError.message });
     } finally {
@@ -219,7 +221,7 @@ export function createApp({ client, library, projects, outputDirectory, publicDi
 }
 
 function sendProjectError(response, error, logger) {
-  if (error?.statusCode === 400 || error?.statusCode === 404) {
+  if ([400, 404, 409].includes(error?.statusCode)) {
     return response.status(error.statusCode).json({ error: error.message });
   }
   logger.error("Project operation failed:", { name: error?.name, message: error?.message });

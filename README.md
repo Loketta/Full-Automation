@@ -20,6 +20,10 @@ The app uses Google's official `@google/genai` 2.x JavaScript SDK and the curren
 5. Copy the example settings: `Copy-Item .env.example .env`.
 6. Open `.env` and replace `your_api_key_here` with your Gemini API key. Do not add quotes or share this file.
 
+### Updating an existing installation
+
+Stop the server, keep your existing `.env` and `output/` folder in place, pull the latest `main`, and run `npm ci`. Then start the app with `npm start`. Neither `.env` nor `output/` is tracked by Git, and the startup import reads existing MP3s without rewriting them. An optional copy of the `output/` folder is still sensible before any software update.
+
 ## Run
 
 In the VS Code terminal:
@@ -32,6 +36,14 @@ Open <http://127.0.0.1:3000>. Starting the server costs nothing. A paid request 
 
 Your MP3 is saved under the ignored `output/` folder. The result panel lets you play it, lower its playback volume, and download it.
 
+## Local track library
+
+The library loads automatically at startup and keeps its metadata in `output/library.json`. Generated tracks are registered with their prompt, creation date, title, and an **Unreviewed**, **Keep**, or **Reject** status. You can rename, review, play, download, or permanently delete tracks in the browser.
+
+On startup, existing top-level `.mp3` files in `output/` are imported without changing their audio. Imported tracks receive a title based on the filename and an “original prompt unavailable” note. Repeated starts do not create duplicates. Metadata updates use a temporary file and atomic rename to avoid partially written JSON.
+
+Deletion requires browser confirmation and removes the MP3 plus its metadata. During deletion, audio is first moved to a private recovery filename inside `output/`; metadata is then committed before the recovery file is removed. A failed metadata write restores the MP3, while interrupted rollback or cleanup is recovered on the next startup. The server accepts only plain `.mp3` filenames that resolve directly inside `output/`; it will not delete paths outside that folder.
+
 ## Test offline
 
 ```powershell
@@ -39,6 +51,8 @@ npm test
 ```
 
 Tests use mocked Lyria responses, need no API key, make no network requests, and spend no API credit.
+
+Library tests use temporary folders and cover existing-file imports, idempotent scans, persistence across restart, renaming, review status, deletion, atomic metadata output, and directory traversal protection.
 
 ## GitHub Actions tests
 

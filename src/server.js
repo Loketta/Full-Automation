@@ -3,16 +3,21 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createApp } from "./app.js";
 import { createLyriaClient } from "./lyria.js";
+import { TrackLibrary } from "./library.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const port = Number.parseInt(process.env.PORT ?? "3000", 10);
 
 try {
   const client = createLyriaClient(process.env.GEMINI_API_KEY);
+  const outputDirectory = path.join(projectRoot, "output");
+  const library = new TrackLibrary(outputDirectory);
+  await library.initialize();
   const app = createApp({
     client,
+    library,
     apiKey: process.env.GEMINI_API_KEY,
-    outputDirectory: path.join(projectRoot, "output"),
+    outputDirectory,
     publicDirectory: path.join(projectRoot, "public"),
   });
 

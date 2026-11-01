@@ -20,3 +20,19 @@ button:disabled { cursor: wait; opacity: .5; }
 audio, input[type="range"] { width: 100%; }
 .volume { margin-top: 1.25rem; }
 .download { margin-top: 1.5rem; }
+.library-section { margin-top: 3rem; }
+.library-heading-row, .title-row, .track-actions { display: flex; gap: .75rem; align-items: center; justify-content: space-between; }
+.library-heading-row h2 { margin: .25rem 0; font-size: 2rem; }
+.track-list { display: grid; gap: 1rem; margin-top: 1.25rem; }
+.track-card { padding: 1.25rem; border: 1px solid #3d4664; border-radius: 14px; background: #0d101a; }
+.track-title { flex: 1; min-width: 0; padding: .7rem .8rem; border: 1px solid #4a5475; border-radius: 8px; background: #141827; color: inherit; font: inherit; font-weight: 750; }
+select { display: block; margin-top: .45rem; padding: .55rem .7rem; border: 1px solid #4a5475; border-radius: 8px; background: #141827; color: inherit; }
+.secondary { background: #2a324b; color: #edf2ff; }
+.danger { border: 1px solid #ff7b7b; background: transparent; color: #ffb4b4; }
+.compact { margin-top: 0; padding: .6rem .85rem; }
+.track-meta, .original-prompt { color: #aeb8d1; overflow-wrap: anywhere; }
+.prompt-label { margin-bottom: .25rem; font-weight: 750; }
+.original-prompt { margin-top: 0; white-space: pre-wrap; }
+.track-actions { justify-content: flex-start; margin-top: 1rem; flex-wrap: wrap; }
+.card-message { color: #8ef4d2; margin-bottom: 0; }
+@media (max-width: 540px) { .title-row { align-items: stretch; flex-direction: column; } .library-heading-row { align-items: flex-start; } }

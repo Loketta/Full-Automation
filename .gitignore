@@ -6,4 +6,5 @@ output/
 *.part
 *.mp3.tmp
 *.wav.tmp
+.test-tmp-*
 

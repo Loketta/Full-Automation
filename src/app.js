@@ -4,10 +4,18 @@ import { validatePrompt, ValidationError } from "./prompt.js";
 import { createSafeDiagnostic, generateInstrumental, toPublicError } from "./lyria.js";
 import { saveMp3 } from "./output.js";
 import { assertGenerationSnapshot } from "./projects.js";
+import { BatchCoordinator } from "./batches.js";
 
-export function createApp({ client, library, projects, outputDirectory, publicDirectory, logger = console, apiKey = "" }) {
+export function createApp({ client, library, projects, batches, outputDirectory, publicDirectory, logger = console, apiKey = "" }) {
   const app = express();
   let generationInProgress = false;
+  const batchCoordinator = batches ? new BatchCoordinator({
+    store: batches,
+    projects,
+    logger,
+    diagnoseError: (error) => createSafeDiagnostic(error, [apiKey]),
+    generateTrack: (projectId, trackId) => generateProjectTrack(projectId, trackId, { strictPersistence: true }),
+  }) : undefined;
 
   app.disable("x-powered-by");
   app.use(express.json({ limit: "160kb" }));
@@ -22,8 +30,8 @@ export function createApp({ client, library, projects, outputDirectory, publicDi
   }));
 
   app.post("/api/generate", async (request, response) => {
-    if (generationInProgress) {
-      return response.status(409).json({ error: "A generation is already in progress. Wait for it to finish." });
+    if (generationInProgress || batchCoordinator?.hasActive()) {
+      return response.status(409).json({ error: generationBlockedMessage(batchCoordinator) });
     }
 
     try {
@@ -118,8 +126,8 @@ export function createApp({ client, library, projects, outputDirectory, publicDi
   });
 
   app.post("/api/projects/:projectId/tracks/:trackId/generate", async (request, response) => {
-    if (generationInProgress) {
-      return response.status(409).json({ error: "A generation is already in progress. Wait for it to finish." });
+    if (generationInProgress || batchCoordinator?.hasActive()) {
+      return response.status(409).json({ error: generationBlockedMessage(batchCoordinator) });
     }
     try {
       const { project, track } = projects.getTrack(request.params.projectId, request.params.trackId);
@@ -127,45 +135,15 @@ export function createApp({ client, library, projects, outputDirectory, publicDi
         return response.status(409).json({ error: "This planned track is already generated. Play it in the Track Library." });
       }
       assertGenerationSnapshot(track, request.body?.expected);
-      const generationPrompt = validatePrompt(track.prompt);
+      validatePrompt(track.prompt);
       generationInProgress = true;
-      const audio = await generateInstrumental(client, generationPrompt);
-      const filename = await saveMp3(audio, outputDirectory);
-      let libraryTrack;
-      let warning;
-      try {
-        libraryTrack = await library.registerGenerated({
-          filename,
-          title: track.title,
-          prompt: generationPrompt,
-          projectId: project.id,
-          plannedTrackId: track.id,
-        });
-      } catch (error) {
-        logger.error("Project MP3 saved, but library metadata could not be persisted:", { name: error?.name, message: error?.message });
-        try {
-          await projects.markSavedFile(project.id, track.id, filename);
-          warning = "The MP3 was saved. Library registration will be repaired automatically when the app restarts; do not generate this track again.";
-        } catch (projectError) {
-          logger.error("Saved MP3 recovery marker could not be persisted:", { name: projectError?.name, message: projectError?.message });
-          warning = "The MP3 was saved in output, but metadata could not be written. Do not generate this track again; restart the app to import it, then review the terminal diagnostic.";
-        }
-      }
-
-      if (libraryTrack) {
-        try {
-          await projects.linkGenerated(project.id, track.id, libraryTrack.id);
-        } catch (error) {
-          logger.error("Generated track saved, but project link persistence failed:", { name: error?.name, message: error?.message });
-          warning = "The MP3 is safely stored in the Track Library, but its project link needs recovery. Do not generate it again; restart the app to repair the link.";
-        }
-      }
+      const result = await generateProjectTrack(project.id, track.id);
 
       return response.status(201).json({
-        filename,
-        audioUrl: `/audio/${encodeURIComponent(filename)}`,
-        track: libraryTrack,
-        warning,
+        filename: result.filename,
+        audioUrl: `/audio/${encodeURIComponent(result.filename)}`,
+        track: result.libraryTrack,
+        warning: result.warning,
       });
     } catch (error) {
       if ([400, 404, 409].includes(error?.statusCode)) return sendProjectError(response, error, logger);
@@ -175,6 +153,47 @@ export function createApp({ client, library, projects, outputDirectory, publicDi
       generationInProgress = false;
     }
   });
+
+  if (batchCoordinator) {
+    app.get("/api/batches", (_request, response) => response.json({
+      batches: batchCoordinator.list(),
+      safety: batchCoordinator.safetyStatus(),
+    }));
+
+    app.get("/api/batches/:batchId", (request, response) => {
+      try {
+        return response.json({
+          batch: batchCoordinator.get(request.params.batchId),
+          safety: batchCoordinator.safetyStatus(),
+        });
+      } catch (error) {
+        return sendBatchError(response, error, logger);
+      }
+    });
+
+    app.post("/api/projects/:projectId/batches", async (request, response) => {
+      if (generationInProgress) {
+        return response.status(409).json({ error: "Another generation start is already in progress. Wait for it to finish." });
+      }
+      generationInProgress = true;
+      try {
+        const batch = await batchCoordinator.start(request.params.projectId, request.body?.expected);
+        return response.status(202).json({ batch });
+      } catch (error) {
+        return sendBatchError(response, error, logger);
+      } finally {
+        generationInProgress = false;
+      }
+    });
+
+    app.post("/api/batches/:batchId/stop", async (request, response) => {
+      try {
+        return response.json({ batch: await batchCoordinator.stop(request.params.batchId) });
+      } catch (error) {
+        return sendBatchError(response, error, logger);
+      }
+    });
+  }
 
   app.patch("/api/tracks/:id", async (request, response) => {
     try {
@@ -218,6 +237,57 @@ export function createApp({ client, library, projects, outputDirectory, publicDi
   });
 
   return app;
+
+  async function generateProjectTrack(projectId, trackId, { strictPersistence = false } = {}) {
+    const { project, track } = projects.getTrack(projectId, trackId);
+    if (track.status === "Generated") throw Object.assign(new Error("This planned track is already generated."), { statusCode: 409 });
+    const generationPrompt = validatePrompt(track.prompt);
+    const audio = await generateInstrumental(client, generationPrompt);
+    const filename = await saveMp3(audio, outputDirectory);
+    let libraryTrack;
+    let warning;
+    try {
+      libraryTrack = await library.registerGenerated({
+        filename,
+        title: track.title,
+        prompt: generationPrompt,
+        projectId: project.id,
+        plannedTrackId: track.id,
+      });
+    } catch (error) {
+      logger.error("Project MP3 saved, but library metadata could not be persisted:", { name: error?.name, message: error?.message });
+      try {
+        await projects.markSavedFile(project.id, track.id, filename);
+        warning = "The MP3 was saved. Library registration will be repaired automatically when the app restarts; do not generate this track again.";
+      } catch (projectError) {
+        logger.error("Saved MP3 recovery marker could not be persisted:", { name: projectError?.name, message: projectError?.message });
+        warning = "The MP3 was saved in output, but metadata could not be written. Do not generate this track again; restart the app to import it, then review the terminal diagnostic.";
+      }
+      if (strictPersistence) throw new Error(`Audio was saved as ${filename}, but metadata persistence failed. ${warning}`, { cause: error });
+    }
+
+    if (libraryTrack) {
+      try {
+        await projects.linkGenerated(project.id, track.id, libraryTrack.id);
+      } catch (error) {
+        logger.error("Generated track saved, but project link persistence failed:", { name: error?.name, message: error?.message });
+        warning = "The MP3 is safely stored in the Track Library, but its project link needs recovery. Do not generate it again; restart the app to repair the link.";
+        if (strictPersistence) throw new Error(`Audio and library metadata were saved as ${filename}, but project persistence failed.`, { cause: error });
+      }
+    }
+    return { filename, libraryTrack, libraryTrackId: libraryTrack?.id, warning };
+  }
+}
+
+function sendBatchError(response, error, logger) {
+  if ([400, 404, 409].includes(error?.statusCode)) return response.status(error.statusCode).json({ error: error.message });
+  logger.error("Batch operation failed:", { name: error?.name, message: error?.message });
+  return response.status(500).json({ error: "Batch state could not be safely updated. No further request was started. Check the VS Code terminal." });
+}
+
+function generationBlockedMessage(batchCoordinator) {
+  return batchCoordinator?.safetyStatus()?.message
+    ?? "A generation is already in progress. Wait for it to finish.";
 }
 
 function sendProjectError(response, error, logger) {

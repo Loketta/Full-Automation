@@ -71,6 +71,14 @@ Imports must be valid UTF-8 JSON no larger than 128 KB, with 1–100 tracks. Pro
 
 The browser includes a downloadable complete example at `public/examples/project-import-v1.json` and a formal JSON Schema at `public/examples/project-import-v1.schema.json`.
 
+## Controlled batch generation
+
+For a selected project, choose between one and five Pending tracks and click **Generate batch**. The confirmation names the project and tracks and states the exact maximum number of paid requests being authorised. The server verifies the saved project snapshot, preserves project order, and generates one track at a time. It durably saves the MP3, Track Library entry, and project link before starting the next paid request.
+
+The batch stops on its first generation or persistence failure and never retries. **Stop batch** prevents another request from starting after the current request finishes. A batch cannot overlap another batch or a single-track generation, and already-generated tracks are rejected. Batch state is stored in the ignored `output/batches.json`; an unfinished batch is marked Interrupted after a restart and is never resumed automatically. Review the Track Library, project status, and terminal diagnostics manually before authorising any further request after a failed or interrupted batch.
+
+If the batch runner itself exits unexpectedly, the server treats the outcome as uncertain, attempts to persist a terminal failure, and blocks all further paid generation for that server session. If even the failure record cannot be written, the in-memory block remains in place and the browser/API warns that saved batch metadata is not authoritative. Inspect the output folder and metadata before safely restarting; no request is retried or resumed automatically.
+
 ## Test offline
 
 ```powershell
@@ -82,6 +90,8 @@ Tests use mocked Lyria responses, need no API key, make no network requests, and
 Library tests use temporary folders and cover existing-file imports, idempotent scans, persistence across restart, renaming, review status, deletion, atomic metadata output, and directory traversal protection.
 
 Project tests cover creation, persistence, ordered imports, validation, editing, generated-track linking and recovery, deletion without audio loss, reference reconciliation, and metadata-write failures. All project management and import tests are offline.
+
+Batch tests cover sizes one through five, the server-side limit, saved snapshots and ordering, sequential execution, exact request bounds, stop and failure behaviour, duplicate starts, stale data, persistence failure, and restart interruption. Mock generators are used throughout, so these tests cannot contact Google or incur charges.
 
 ## GitHub Actions tests
 

@@ -71,6 +71,18 @@
         <p class="warning"><strong>Project deletion keeps generated audio.</strong> MP3s remain available in the Track Library unless deleted there separately.</p>
 
         <h3>Planned tracks</h3>
+        <div id="batch-controls" class="batch-controls">
+          <div>
+            <strong>Controlled batch generation</strong>
+            <p>Select 1–5 pending tracks below. Tracks always generate sequentially in project order.</p>
+          </div>
+          <div class="track-actions">
+            <button id="generate-batch" type="button">Generate batch</button>
+            <button id="stop-batch" class="danger" type="button" hidden>Stop batch</button>
+          </div>
+          <p id="batch-status" class="batch-status" role="status" aria-live="polite" aria-atomic="true"></p>
+          <ol id="batch-completed" class="batch-completed" aria-label="Completed batch tracks"></ol>
+        </div>
         <div id="planned-track-list" class="planned-track-list"></div>
 
         <form id="add-planned-track-form" class="nested-form">

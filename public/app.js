@@ -6,6 +6,7 @@ import {
   plannedTrackDraft,
   showPlannedTrackMessage,
 } from "./planned-track-state.js";
+import { buildBatchConfirmation, buildBatchSnapshot, describeBatch } from "./batch-state.js";
 
 const form = document.querySelector("#generate-form");
 const prompt = document.querySelector("#prompt");
@@ -30,7 +31,13 @@ const projectTheme = document.querySelector("#project-theme");
 const projectCreated = document.querySelector("#project-created");
 const plannedTrackList = document.querySelector("#planned-track-list");
 const addPlannedTrackForm = document.querySelector("#add-planned-track-form");
+const generateBatchButton = document.querySelector("#generate-batch");
+const stopBatchButton = document.querySelector("#stop-batch");
+const batchStatus = document.querySelector("#batch-status");
+const batchCompleted = document.querySelector("#batch-completed");
 let projects = [];
+let activeBatchId;
+let batchPollTimer;
 
 player.volume = Number(volume.value);
 volume.addEventListener("input", () => {
@@ -246,6 +253,9 @@ importProjectForm.addEventListener("submit", async (event) => {
 
 projectSelect.addEventListener("change", () => renderSelectedProject(projectSelect.value));
 
+generateBatchButton.addEventListener("click", startBatch);
+stopBatchButton.addEventListener("click", stopBatch);
+
 document.querySelector("#save-project").addEventListener("click", async () => {
   if (!projectSelect.value) return;
   try {
@@ -304,6 +314,7 @@ async function loadProjects(selectedId = projectSelect.value) {
     const nextId = projects.some((project) => project.id === selectedId) ? selectedId : "";
     projectSelect.value = nextId;
     renderSelectedProject(nextId);
+    await loadLatestBatch(nextId);
   } catch (error) {
     projectStatus.textContent = error.message;
   }
@@ -341,8 +352,30 @@ function createPlannedTrackCard(project, track, index) {
   const title = field("Title", track.title, "input", 120);
   const direction = field("Musical direction", track.direction, "textarea", 1000);
   const promptField = field("Complete Lyria generation prompt", track.prompt, "textarea", 2000);
+  title.control.dataset.plannedField = "title";
+  direction.control.dataset.plannedField = "direction";
+  promptField.control.dataset.plannedField = "prompt";
   const locked = track.status === "Generated";
   for (const control of [title.control, direction.control, promptField.control]) control.disabled = locked;
+
+  if (!locked) {
+    const selector = document.createElement("label");
+    selector.className = "batch-selector";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.className = "batch-track-selector";
+    checkbox.value = track.id;
+    checkbox.setAttribute("aria-label", `Include ${track.title} in batch`);
+    checkbox.addEventListener("change", () => {
+      const count = document.querySelectorAll(".batch-track-selector:checked").length;
+      if (count > 5) {
+        checkbox.checked = false;
+        batchStatus.textContent = "A batch can authorise at most five paid requests.";
+      }
+    });
+    selector.append(checkbox, document.createTextNode("Select for batch"));
+    card.append(selector);
+  }
 
   const actions = document.createElement("div");
   actions.className = "track-actions";
@@ -410,6 +443,129 @@ function createPlannedTrackCard(project, track, index) {
     card.append(heading, title.wrapper, direction.wrapper, promptField.wrapper, actions, cardMessage);
   }
   return card;
+}
+
+async function startBatch() {
+  const project = projects.find((candidate) => candidate.id === projectSelect.value);
+  if (!project) return;
+  const selectedIds = [...document.querySelectorAll(".batch-track-selector:checked")].map((element) => element.value);
+  if (selectedIds.length < 1 || selectedIds.length > 5) {
+    batchStatus.textContent = "Select between 1 and 5 pending tracks.";
+    return;
+  }
+  for (const trackId of selectedIds) {
+    const track = project.tracks.find((candidate) => candidate.id === trackId);
+    const card = plannedTrackList.querySelector(`[data-planned-track-id="${CSS.escape(trackId)}"]`);
+    const controls = card?.querySelectorAll("[data-planned-field]");
+    if (!track || !controls?.length) continue;
+    const values = Object.fromEntries([...controls].map((control) => [control.dataset.plannedField, control.value]));
+    if (hasUnsavedPlannedTrackChanges(track, plannedTrackDraft(values.title, values.direction, values.prompt))) {
+      const message = card.querySelector(".planned-track-message");
+      showPlannedTrackMessage(message, "Unsaved changes detected. Save this planned track before batch generation. No paid request was made.");
+      batchStatus.textContent = "Save all selected track changes before approving a paid batch.";
+      return;
+    }
+  }
+  const expected = buildBatchSnapshot(project, selectedIds);
+  if (!window.confirm(buildBatchConfirmation(project.name, expected.tracks))) {
+    batchStatus.textContent = "Batch cancelled. No API request was made.";
+    return;
+  }
+  generateBatchButton.disabled = true;
+  batchStatus.textContent = "Authorising the saved batch snapshot…";
+  try {
+    const data = await apiJson(`/api/projects/${encodeURIComponent(project.id)}/batches`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ expected }),
+    });
+    activeBatchId = data.batch.id;
+    renderBatch(data.batch);
+    scheduleBatchPoll();
+  } catch (error) {
+    batchStatus.textContent = error.message;
+    generateBatchButton.disabled = false;
+  }
+}
+
+async function stopBatch() {
+  if (!activeBatchId) return;
+  stopBatchButton.disabled = true;
+  try {
+    const data = await apiJson(`/api/batches/${encodeURIComponent(activeBatchId)}/stop`, { method: "POST" });
+    renderBatch(data.batch);
+    scheduleBatchPoll();
+  } catch (error) {
+    batchStatus.textContent = error.message;
+  } finally {
+    stopBatchButton.disabled = false;
+  }
+}
+
+async function loadLatestBatch(projectId) {
+  clearTimeout(batchPollTimer);
+  activeBatchId = undefined;
+  batchCompleted.replaceChildren();
+  batchStatus.textContent = "";
+  stopBatchButton.hidden = true;
+  generateBatchButton.disabled = false;
+  if (!projectId) return;
+  try {
+    const data = await apiJson("/api/batches");
+    if (data.safety?.blocked) {
+      renderBatchSafety(data.safety);
+      return;
+    }
+    const batch = data.batches.find((candidate) => candidate.projectId === projectId);
+    if (!batch) return;
+    renderBatch(batch);
+    if (["approved", "running", "stopping"].includes(batch.status)) scheduleBatchPoll();
+  } catch (error) {
+    batchStatus.textContent = error.message;
+  }
+}
+
+function scheduleBatchPoll() {
+  clearTimeout(batchPollTimer);
+  batchPollTimer = setTimeout(refreshBatch, 1000);
+}
+
+async function refreshBatch() {
+  if (!activeBatchId) return;
+  try {
+    const data = await apiJson(`/api/batches/${encodeURIComponent(activeBatchId)}`);
+    renderBatch(data.batch);
+    if (data.safety?.blocked) {
+      renderBatchSafety(data.safety);
+      return;
+    }
+    await Promise.all([loadProjects(projectSelect.value), loadLibrary()]);
+    if (["approved", "running", "stopping"].includes(data.batch.status)) scheduleBatchPoll();
+  } catch (error) {
+    batchStatus.textContent = `Batch status could not be refreshed: ${error.message} The server will not automatically retry or resume generation.`;
+  }
+}
+
+function renderBatch(batch) {
+  const active = ["approved", "running", "stopping"].includes(batch.status);
+  activeBatchId = active ? batch.id : undefined;
+  batchStatus.textContent = describeBatch(batch);
+  batchCompleted.replaceChildren(...batch.completed.map((track) => {
+    const item = document.createElement("li");
+    item.textContent = `${track.title} — ${track.filename}`;
+    return item;
+  }));
+  generateBatchButton.disabled = active;
+  stopBatchButton.hidden = !active;
+  stopBatchButton.disabled = batch.status === "stopping";
+}
+
+function renderBatchSafety(safety) {
+  activeBatchId = undefined;
+  clearTimeout(batchPollTimer);
+  generateBatchButton.disabled = true;
+  stopBatchButton.hidden = true;
+  batchStatus.textContent = safety.message;
 }
 
 function field(labelText, value, kind, maxLength) {

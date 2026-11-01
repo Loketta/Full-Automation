@@ -6,6 +6,7 @@ import { createLyriaClient } from "./lyria.js";
 import { TrackLibrary } from "./library.js";
 import { ProjectStore } from "./projects.js";
 import { BatchStore } from "./batches.js";
+import { recoverReplacementTransactions } from "./regeneration.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const port = Number.parseInt(process.env.PORT ?? "3000", 10);
@@ -18,6 +19,7 @@ try {
   const projects = new ProjectStore(outputDirectory);
   await projects.initialize();
   await projects.reconcileLibraryLinks(library.list());
+  const replacementRecovery = await recoverReplacementTransactions(projects, library);
   const batches = new BatchStore(outputDirectory);
   await batches.initialize();
   const app = createApp({
@@ -25,6 +27,11 @@ try {
     library,
     projects,
     batches,
+    startupGenerationBlock: replacementRecovery.pending ? {
+      blocked: true,
+      outcomeUncertain: true,
+      message: replacementRecovery.message,
+    } : undefined,
     apiKey: process.env.GEMINI_API_KEY,
     outputDirectory,
     publicDirectory: path.join(projectRoot, "public"),

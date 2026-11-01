@@ -155,13 +155,60 @@ export class ProjectStore {
     });
   }
 
+  commitReplacement(projectId, trackId, { oldLibraryTrackId, newLibraryTrackId, prompt }) {
+    return this.#exclusive(async () => {
+      const project = this.#findProject(projectId);
+      const track = project.tracks.find((candidate) => candidate.id === trackId);
+      if (!track) throw new ProjectNotFoundError("Planned track not found.");
+      if (track.status !== "Generated" || track.libraryTrackId !== oldLibraryTrackId) {
+        throw new ProjectConflictError("The recording linked to this planned track changed. Refresh before regenerating.");
+      }
+      const revisedPrompt = validateText(prompt, "Regeneration prompt", 10, 2000);
+      const updated = {
+        ...track,
+        prompt: revisedPrompt,
+        libraryTrackId: newLibraryTrackId,
+        replacementCleanupId: oldLibraryTrackId,
+      };
+      delete updated.recoveryFilename;
+      return this.#mutateAndPersist(() => Object.assign(track, updated), track);
+    });
+  }
+
+  completeReplacementCleanup(projectId, trackId, oldLibraryTrackId) {
+    return this.#exclusive(async () => {
+      const project = this.#findProject(projectId);
+      const track = project.tracks.find((candidate) => candidate.id === trackId);
+      if (!track) throw new ProjectNotFoundError("Planned track not found.");
+      if (track.replacementCleanupId !== oldLibraryTrackId) return structuredClone(track);
+      return this.#mutateAndPersist(() => delete track.replacementCleanupId, track);
+    });
+  }
+
+  replacementCleanups() {
+    const cleanups = [];
+    for (const project of this.data.projects) {
+      for (const track of project.tracks) {
+        if (typeof track.replacementCleanupId === "string") {
+          cleanups.push({ projectId: project.id, plannedTrackId: track.id, oldLibraryTrackId: track.replacementCleanupId });
+        }
+      }
+    }
+    return structuredClone(cleanups);
+  }
+
+  referencesLibraryTrack(libraryTrackId) {
+    return this.data.projects.some((project) => project.tracks.some((track) => track.libraryTrackId === libraryTrackId));
+  }
+
   reconcileLibraryLinks(libraryTracks) {
     return this.#exclusive(async () => {
       const byId = new Map(libraryTracks.map((track) => [track.id, track]));
       let changed = false;
       for (const project of this.data.projects) {
         for (const track of project.tracks) {
-          const associated = libraryTracks.find((libraryTrack) =>
+          const current = track.libraryTrackId ? byId.get(track.libraryTrackId) : undefined;
+          const associated = current ?? libraryTracks.find((libraryTrack) =>
             libraryTrack.projectId === project.id && libraryTrack.plannedTrackId === track.id);
           const recovered = track.recoveryFilename
             ? libraryTracks.find((libraryTrack) => libraryTrack.filename === track.recoveryFilename)

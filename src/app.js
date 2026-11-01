@@ -5,8 +5,9 @@ import { createSafeDiagnostic, generateInstrumental, toPublicError } from "./lyr
 import { saveMp3 } from "./output.js";
 import { assertGenerationSnapshot } from "./projects.js";
 import { BatchCoordinator } from "./batches.js";
+import { decorateProjectsWithRecordings, regenerateRejectedRecording } from "./regeneration.js";
 
-export function createApp({ client, library, projects, batches, outputDirectory, publicDirectory, logger = console, apiKey = "" }) {
+export function createApp({ client, library, projects, batches, outputDirectory, publicDirectory, logger = console, apiKey = "", startupGenerationBlock }) {
   const app = express();
   let generationInProgress = false;
   const batchCoordinator = batches ? new BatchCoordinator({
@@ -30,8 +31,8 @@ export function createApp({ client, library, projects, batches, outputDirectory,
   }));
 
   app.post("/api/generate", async (request, response) => {
-    if (generationInProgress || batchCoordinator?.hasActive()) {
-      return response.status(409).json({ error: generationBlockedMessage(batchCoordinator) });
+    if (generationInProgress || startupGenerationBlock || batchCoordinator?.hasActive()) {
+      return response.status(409).json({ error: generationBlockedMessage(batchCoordinator, startupGenerationBlock) });
     }
 
     try {
@@ -65,7 +66,9 @@ export function createApp({ client, library, projects, batches, outputDirectory,
     return response.json({ tracks: library.list() });
   });
 
-  app.get("/api/projects", (_request, response) => response.json({ projects: projects.list() }));
+  app.get("/api/projects", (_request, response) => response.json({
+    projects: decorateProjectsWithRecordings(projects.list(), library.list()),
+  }));
 
   app.post("/api/projects", async (request, response) => {
     try {
@@ -126,8 +129,8 @@ export function createApp({ client, library, projects, batches, outputDirectory,
   });
 
   app.post("/api/projects/:projectId/tracks/:trackId/generate", async (request, response) => {
-    if (generationInProgress || batchCoordinator?.hasActive()) {
-      return response.status(409).json({ error: generationBlockedMessage(batchCoordinator) });
+    if (generationInProgress || startupGenerationBlock || batchCoordinator?.hasActive()) {
+      return response.status(409).json({ error: generationBlockedMessage(batchCoordinator, startupGenerationBlock) });
     }
     try {
       const { project, track } = projects.getTrack(request.params.projectId, request.params.trackId);
@@ -154,17 +157,50 @@ export function createApp({ client, library, projects, batches, outputDirectory,
     }
   });
 
+  app.post("/api/projects/:projectId/tracks/:trackId/regenerate", async (request, response) => {
+    if (generationInProgress || startupGenerationBlock || batchCoordinator?.hasActive()) {
+      return response.status(409).json({ error: generationBlockedMessage(batchCoordinator, startupGenerationBlock) });
+    }
+    generationInProgress = true;
+    try {
+      const result = await regenerateRejectedRecording({
+        projectId: request.params.projectId,
+        plannedTrackId: request.params.trackId,
+        revisedPrompt: request.body?.prompt,
+        expected: request.body?.expected,
+        projects,
+        library,
+        generateAudio: (prompt) => generateInstrumental(client, prompt),
+        saveAudio: (audio) => saveMp3(audio, outputDirectory),
+        logger,
+      });
+      return response.status(201).json({
+        filename: result.replacement.filename,
+        audioUrl: `/audio/${encodeURIComponent(result.replacement.filename)}`,
+        track: result.replacement,
+        replacedTrackId: result.replaced.id,
+        warning: result.warning,
+      });
+    } catch (error) {
+      if ([400, 404, 409].includes(error?.statusCode)) return sendProjectError(response, error, logger);
+      const publicError = reportGenerationError(error, { logger, apiKey });
+      return response.status(publicError.status).json({ error: publicError.message });
+    } finally {
+      generationInProgress = false;
+    }
+  });
+
   if (batchCoordinator) {
     app.get("/api/batches", (_request, response) => response.json({
       batches: batchCoordinator.list(),
-      safety: batchCoordinator.safetyStatus(),
+      safety: startupGenerationBlock ?? batchCoordinator.safetyStatus(),
     }));
 
     app.get("/api/batches/:batchId", (request, response) => {
       try {
         return response.json({
           batch: batchCoordinator.get(request.params.batchId),
-          safety: batchCoordinator.safetyStatus(),
+          safety: startupGenerationBlock ?? batchCoordinator.safetyStatus(),
         });
       } catch (error) {
         return sendBatchError(response, error, logger);
@@ -172,8 +208,8 @@ export function createApp({ client, library, projects, batches, outputDirectory,
     });
 
     app.post("/api/projects/:projectId/batches", async (request, response) => {
-      if (generationInProgress) {
-        return response.status(409).json({ error: "Another generation start is already in progress. Wait for it to finish." });
+      if (generationInProgress || startupGenerationBlock) {
+        return response.status(409).json({ error: generationBlockedMessage(batchCoordinator, startupGenerationBlock) });
       }
       generationInProgress = true;
       try {
@@ -285,8 +321,9 @@ function sendBatchError(response, error, logger) {
   return response.status(500).json({ error: "Batch state could not be safely updated. No further request was started. Check the VS Code terminal." });
 }
 
-function generationBlockedMessage(batchCoordinator) {
-  return batchCoordinator?.safetyStatus()?.message
+function generationBlockedMessage(batchCoordinator, startupGenerationBlock) {
+  return startupGenerationBlock?.message
+    ?? batchCoordinator?.safetyStatus()?.message
     ?? "A generation is already in progress. Wait for it to finish.";
 }
 

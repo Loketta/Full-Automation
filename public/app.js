@@ -7,6 +7,7 @@ import {
   showPlannedTrackMessage,
 } from "./planned-track-state.js";
 import { buildBatchConfirmation, buildBatchSnapshot, describeBatch } from "./batch-state.js";
+import { buildRegenerationConfirmation, formatProjectProgress, hasSubstantivePromptRevision } from "./regeneration-state.js";
 
 const form = document.querySelector("#generate-form");
 const prompt = document.querySelector("#prompt");
@@ -35,6 +36,7 @@ const generateBatchButton = document.querySelector("#generate-batch");
 const stopBatchButton = document.querySelector("#stop-batch");
 const batchStatus = document.querySelector("#batch-status");
 const batchCompleted = document.querySelector("#batch-completed");
+const projectProgress = document.querySelector("#project-progress");
 let projects = [];
 let activeBatchId;
 let batchPollTimer;
@@ -173,7 +175,7 @@ function createTrackCard(track) {
     const response = await fetch(`/api/tracks/${encodeURIComponent(track.id)}`, { method: "DELETE" });
     const data = await response.json();
     if (response.ok) {
-      await loadLibrary();
+      await Promise.all([loadLibrary(), loadProjects(projectSelect.value)]);
       if (data.warning) libraryStatus.textContent = data.warning;
       return;
     }
@@ -197,6 +199,7 @@ async function updateTrack(id, changes, card) {
   const data = await response.json();
   if (!response.ok) return showCardMessage(card, data.error || "Could not update track.");
   showCardMessage(card, "Saved.");
+  if (Object.hasOwn(changes, "reviewStatus")) await loadProjects(projectSelect.value);
 }
 
 function showCardMessage(card, message) {
@@ -327,6 +330,7 @@ function renderSelectedProject(id) {
   projectName.value = project.name;
   projectTheme.value = project.theme;
   projectCreated.textContent = `Created ${new Date(project.createdAt).toLocaleString()}`;
+  projectProgress.textContent = formatProjectProgress(project.progress);
   plannedTrackList.replaceChildren();
   project.tracks.forEach((track, index) => plannedTrackList.append(createPlannedTrackCard(project, track, index)));
   if (!project.tracks.length) {
@@ -436,13 +440,112 @@ function createPlannedTrackCard(project, track, index) {
   });
   actions.append(remove);
   if (locked) {
-    const libraryNote = document.createElement("p");
-    libraryNote.textContent = "Generated audio is available in the Track Library below.";
-    card.append(heading, title.wrapper, direction.wrapper, promptField.wrapper, libraryNote, actions, cardMessage);
+    const recordingPanel = createProjectRecording(project, track, cardMessage);
+    card.append(heading, title.wrapper, direction.wrapper, promptField.wrapper, recordingPanel, actions, cardMessage);
   } else {
     card.append(heading, title.wrapper, direction.wrapper, promptField.wrapper, actions, cardMessage);
   }
   return card;
+}
+
+function createProjectRecording(project, track, cardMessage) {
+  const panel = document.createElement("section");
+  panel.className = "project-recording";
+  const recording = track.recording;
+  if (!recording) {
+    const warning = document.createElement("p");
+    warning.textContent = "The linked recording is unavailable. Refresh or restart before taking further action.";
+    panel.append(warning);
+    return panel;
+  }
+
+  const heading = document.createElement("strong");
+  heading.textContent = `Current recording: ${recording.title}`;
+  const filename = document.createElement("p");
+  filename.className = "track-meta";
+  filename.textContent = recording.filename;
+  const audio = document.createElement("audio");
+  audio.controls = true;
+  audio.preload = "metadata";
+  audio.volume = 0.5;
+  audio.src = `/audio/${encodeURIComponent(recording.filename)}`;
+
+  const statusLabel = document.createElement("label");
+  statusLabel.textContent = "Review status";
+  const review = document.createElement("select");
+  for (const value of ["Unreviewed", "Keep", "Reject"]) {
+    const option = new Option(value, value, false, value === recording.reviewStatus);
+    review.append(option);
+  }
+  review.addEventListener("change", async () => {
+    review.disabled = true;
+    try {
+      await apiJson(`/api/tracks/${encodeURIComponent(recording.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reviewStatus: review.value }),
+      });
+      await Promise.all([loadProjects(project.id), loadLibrary()]);
+      projectStatus.textContent = "Review status saved in the project and Track Library.";
+    } catch (error) {
+      showPlannedTrackMessage(cardMessage, error.message);
+      review.disabled = false;
+    }
+  });
+  statusLabel.append(review);
+  panel.append(heading, filename, audio, statusLabel);
+
+  if (recording.reviewStatus === "Reject") {
+    const editor = document.createElement("div");
+    editor.className = "regeneration-editor";
+    const notice = document.createElement("p");
+    notice.className = "warning";
+    notice.textContent = `Regeneration will replace the rejected recording ${recording.filename} only after the new recording is safely saved.`;
+    const promptLabel = document.createElement("label");
+    promptLabel.textContent = "Revised regeneration prompt";
+    const revisedPrompt = document.createElement("textarea");
+    revisedPrompt.minLength = 10;
+    revisedPrompt.maxLength = 2000;
+    revisedPrompt.value = recording.prompt;
+    promptLabel.append(revisedPrompt);
+    const regenerate = actionButton("Regenerate rejected recording", "compact", async () => {
+      if (!hasSubstantivePromptRevision(recording.prompt, revisedPrompt.value)) {
+        showPlannedTrackMessage(cardMessage, "Revise the prompt before regenerating. Whitespace-only changes do not qualify. No paid request was made.");
+        return;
+      }
+      if (!window.confirm(buildRegenerationConfirmation(recording, revisedPrompt.value))) {
+        showPlannedTrackMessage(cardMessage, "Regeneration cancelled. No paid request was made.");
+        return;
+      }
+      regenerate.disabled = true;
+      revisedPrompt.disabled = true;
+      showPlannedTrackMessage(cardMessage, "Generating one replacement… The rejected recording remains safe until commit completes.");
+      try {
+        const data = await apiJson(`/api/projects/${encodeURIComponent(project.id)}/tracks/${encodeURIComponent(track.id)}/regenerate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prompt: revisedPrompt.value,
+            expected: { libraryTrackId: recording.id, prompt: recording.prompt },
+          }),
+        });
+        player.src = data.audioUrl;
+        download.href = data.audioUrl;
+        download.download = data.filename;
+        result.hidden = false;
+        await Promise.all([loadProjects(project.id), loadLibrary()]);
+        const message = document.getElementById(`planned-track-message-${track.id}`);
+        if (message) showPlannedTrackMessage(message, data.warning || "Rejected recording replaced safely. The new recording is awaiting review.");
+      } catch (error) {
+        showPlannedTrackMessage(cardMessage, error.message);
+        regenerate.disabled = false;
+        revisedPrompt.disabled = false;
+      }
+    });
+    editor.append(notice, promptLabel, regenerate);
+    panel.append(editor);
+  }
+  return panel;
 }
 
 async function startBatch() {

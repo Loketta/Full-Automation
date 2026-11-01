@@ -79,6 +79,14 @@ The batch stops on its first generation or persistence failure and never retries
 
 If the batch runner itself exits unexpectedly, the server treats the outcome as uncertain, attempts to persist a terminal failure, and blocks all further paid generation for that server session. If even the failure record cannot be written, the in-memory block remains in place and the browser/API warns that saved batch metadata is not authoritative. Inspect the output folder and metadata before safely restarting; no request is retried or resumed automatically.
 
+## Project review and regeneration
+
+Generated recordings can be played and reviewed directly inside their ordered project track cards. **Unreviewed**, **Keep**, and **Reject** are the same Track Library status, so a change in either view is reflected in both. The project summary reports accepted, rejected, awaiting-review, and not-yet-generated counts.
+
+Only a current recording marked **Reject** shows regeneration controls. Its original generation prompt is prefilled and must be substantively revised; whitespace-only edits are rejected in both the browser and server. Confirmation identifies the exact rejected filename, revised prompt, and one paid request before anything is sent to Lyria. Regeneration uses the same application-wide concurrency and fail-closed batch safeguards and never retries automatically.
+
+Replacement is recoverable: the rejected MP3 remains linked while the new audio and prepared library metadata are saved. The project is then durably switched to the new **Unreviewed** recording before the old MP3 is removed. Prepared and cleanup markers let startup either discard an uncommitted replacement or finish a committed cleanup. An old recording referenced by another planned track is retained. The interface intentionally exposes only the current recording, not version history.
+
 ## Test offline
 
 ```powershell
@@ -92,6 +100,8 @@ Library tests use temporary folders and cover existing-file imports, idempotent 
 Project tests cover creation, persistence, ordered imports, validation, editing, generated-track linking and recovery, deletion without audio loss, reference reconciliation, and metadata-write failures. All project management and import tests are offline.
 
 Batch tests cover sizes one through five, the server-side limit, saved snapshots and ordering, sequential execution, exact request bounds, stop and failure behaviour, duplicate starts, stale data, persistence failure, and restart interruption. Mock generators are used throughout, so these tests cannot contact Google or incur charges.
+
+Review and regeneration tests cover shared status persistence, progress counts, Reject-only eligibility, client/server prompt comparison, paid confirmation text, exactly-one-call behavior, batch overlap blocking, safe replacement, rollback, shared references, cleanup failure, and restart recovery. All audio generation responses are mocked.
 
 ## GitHub Actions tests
 

@@ -42,6 +42,11 @@ audio, input[type="range"] { width: 100%; }
 .batch-selector > input[type="checkbox"] { width: 1rem; height: 1rem; flex: 0 0 1rem; margin: 0; padding: 0; }
 .planned-card { padding: 1rem; border: 1px solid #3d4664; border-radius: 12px; background: #0b0f19; }
 .planned-card textarea { min-height: 90px; }
+.project-progress { color: #dffdf3; font-weight: 750; }
+.project-recording { margin-top: 1rem; padding: .9rem; border: 1px solid #343b56; border-radius: 10px; background: #101522; }
+.project-recording audio { margin: .5rem 0 1rem; }
+.regeneration-editor { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #4a5475; }
+.regeneration-editor textarea { min-height: 120px; }
 .status-badge { display: inline-block; padding: .25rem .55rem; border-radius: 999px; background: #2a324b; color: #8ef4d2; font-size: .8rem; font-weight: 800; }
 .planned-track-message { min-height: 1.5rem; margin: .75rem 0 0; padding: .65rem .8rem; border-left: 3px solid #8ef4d2; background: #14211f; color: #dffdf3; }
 .planned-track-message:empty { padding: 0; border: 0; background: transparent; }

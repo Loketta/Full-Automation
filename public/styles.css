@@ -64,4 +64,7 @@ select { display: block; margin-top: .45rem; padding: .55rem .7rem; border: 1px 
 .original-prompt { margin-top: 0; white-space: pre-wrap; }
 .track-actions { justify-content: flex-start; margin-top: 1rem; flex-wrap: wrap; }
 .card-message { color: #8ef4d2; margin-bottom: 0; }
+.video-creator { margin-top: 1rem; padding: 1rem; border: 1px solid #4a5475; border-radius: 10px; background: #101522; }
+.video-creator select { width: 100%; }
+.video-plan { overflow-wrap: anywhere; color: #bbc4dc; }
 @media (max-width: 540px) { .title-row { align-items: stretch; flex-direction: column; } .library-heading-row { align-items: flex-start; } }

@@ -9,6 +9,7 @@ import {
 import { buildBatchConfirmation, buildBatchSnapshot, describeBatch } from "./batch-state.js";
 import { buildRegenerationConfirmation, formatProjectProgress, hasSubstantivePromptRevision } from "./regeneration-state.js";
 import { buildVideoConfirmation } from "./video-state.js";
+import { buildMixConfirmation, formatMixDuration } from "./mix-state.js";
 
 const form = document.querySelector("#generate-form");
 const prompt = document.querySelector("#prompt");
@@ -38,7 +39,19 @@ const stopBatchButton = document.querySelector("#stop-batch");
 const batchStatus = document.querySelector("#batch-status");
 const batchCompleted = document.querySelector("#batch-completed");
 const projectProgress = document.querySelector("#project-progress");
+const mixSelect = document.querySelector("#mix-select");
+const mixTitle = document.querySelector("#mix-title");
+const mixCrossfade = document.querySelector("#mix-crossfade");
+const mixTrackSelect = document.querySelector("#mix-track-select");
+const mixTrackList = document.querySelector("#mix-track-list");
+const mixStatus = document.querySelector("#mix-status");
+const mixPlanDetails = document.querySelector("#mix-plan-details");
 let projects = [];
+let libraryTracks = [];
+let mixes = [];
+let mixTrackIds = [];
+let currentMixId = "";
+let approvedMixPlan;
 let activeBatchId;
 let batchPollTimer;
 
@@ -89,6 +102,7 @@ form.addEventListener("submit", async (event) => {
 refreshLibrary.addEventListener("click", loadLibrary);
 loadLibrary();
 loadProjects();
+loadMixes();
 
 async function loadLibrary() {
   libraryStatus.textContent = "Loading tracks…";
@@ -96,7 +110,9 @@ async function loadLibrary() {
     const response = await fetch("/api/tracks");
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "Could not load the track library.");
+    libraryTracks = data.tracks;
     renderTracks(data.tracks);
+    renderMixTrackOptions();
     libraryStatus.textContent = data.tracks.length
       ? `${data.tracks.length} track${data.tracks.length === 1 ? "" : "s"} saved locally.`
       : "No tracks yet. Generate one above or add MP3 files to the output folder and restart the app.";
@@ -359,6 +375,20 @@ projectSelect.addEventListener("change", () => renderSelectedProject(projectSele
 
 generateBatchButton.addEventListener("click", startBatch);
 stopBatchButton.addEventListener("click", stopBatch);
+mixSelect.addEventListener("change", () => selectMixDraft(mixSelect.value));
+document.querySelector("#mix-add-track").addEventListener("click", () => {
+  if (!mixTrackSelect.value || mixTrackIds.includes(mixTrackSelect.value)) return;
+  mixTrackIds.push(mixTrackSelect.value);
+  invalidateMixPlan();
+  renderMixDraftTracks();
+});
+document.querySelector("#mix-save").addEventListener("click", async () => {
+  try { await saveMixDraft(); mixStatus.textContent = "Mix draft saved locally."; }
+  catch (error) { mixStatus.textContent = error.message; }
+});
+document.querySelector("#mix-plan").addEventListener("click", reviewMixPlan);
+mixTitle.addEventListener("input", invalidateMixPlan);
+mixCrossfade.addEventListener("input", invalidateMixPlan);
 
 document.querySelector("#save-project").addEventListener("click", async () => {
   if (!projectSelect.value) return;
@@ -789,6 +819,107 @@ function actionButton(text, className, handler) {
   button.textContent = text;
   button.addEventListener("click", handler);
   return button;
+}
+
+async function loadMixes(selectedId = currentMixId) {
+  try {
+    const data = await apiJson("/api/mixes");
+    mixes = data.mixes;
+    mixSelect.replaceChildren(new Option("New mix", ""));
+    for (const mix of mixes) mixSelect.append(new Option(mix.title, mix.id));
+    if (selectedId && mixes.some((mix) => mix.id === selectedId)) {
+      mixSelect.value = selectedId;
+      selectMixDraft(selectedId);
+    }
+    if (!data.status.available) mixStatus.textContent = data.status.error;
+  } catch (error) { mixStatus.textContent = error.message; }
+}
+
+function selectMixDraft(id) {
+  const mix = mixes.find((candidate) => candidate.id === id);
+  currentMixId = mix?.id ?? "";
+  mixTitle.value = mix?.title ?? "Untitled Mix";
+  mixCrossfade.value = mix?.crossfadeSeconds ?? 8;
+  mixTrackIds = mix ? [...mix.trackIds] : [];
+  invalidateMixPlan(); renderMixDraftTracks();
+}
+
+function renderMixTrackOptions() {
+  const selected = mixTrackSelect.value;
+  mixTrackSelect.replaceChildren(new Option("Choose a recording", ""));
+  for (const track of libraryTracks) mixTrackSelect.append(new Option(`${track.title} — ${track.filename}`, track.id));
+  if (libraryTracks.some((track) => track.id === selected)) mixTrackSelect.value = selected;
+  renderMixDraftTracks();
+}
+
+function renderMixDraftTracks() {
+  mixTrackIds = mixTrackIds.filter((id) => libraryTracks.some((track) => track.id === id));
+  mixTrackList.replaceChildren(...mixTrackIds.map((id, index) => {
+    const track = libraryTracks.find((candidate) => candidate.id === id);
+    const item = document.createElement("li"); item.className = "mix-track-item";
+    const title = document.createElement("strong"); title.textContent = `${index + 1}. ${track.title}`;
+    const audio = document.createElement("audio"); audio.controls = true; audio.preload = "metadata"; audio.src = `/audio/${encodeURIComponent(track.filename)}`;
+    const actions = document.createElement("div"); actions.className = "track-actions";
+    const up = actionButton("Move up", "secondary compact", () => moveMixTrack(index, -1));
+    const down = actionButton("Move down", "secondary compact", () => moveMixTrack(index, 1));
+    const remove = actionButton("Remove", "danger compact", () => { mixTrackIds.splice(index, 1); invalidateMixPlan(); renderMixDraftTracks(); });
+    up.disabled = index === 0; down.disabled = index === mixTrackIds.length - 1;
+    actions.append(up, down, remove); item.append(title, audio, actions); return item;
+  }));
+}
+
+function moveMixTrack(index, offset) {
+  const destination = index + offset;
+  if (destination < 0 || destination >= mixTrackIds.length) return;
+  [mixTrackIds[index], mixTrackIds[destination]] = [mixTrackIds[destination], mixTrackIds[index]];
+  invalidateMixPlan(); renderMixDraftTracks();
+}
+
+function invalidateMixPlan() { approvedMixPlan = undefined; mixPlanDetails.replaceChildren(); }
+
+async function saveMixDraft() {
+  const body = JSON.stringify({ title: mixTitle.value, trackIds: mixTrackIds, crossfadeSeconds: Number(mixCrossfade.value) });
+  const data = await apiJson(currentMixId ? `/api/mixes/${encodeURIComponent(currentMixId)}` : "/api/mixes", {
+    method: currentMixId ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body,
+  });
+  currentMixId = data.mix.id;
+  await loadMixes(currentMixId);
+  return data.mix;
+}
+
+async function reviewMixPlan() {
+  try {
+    await saveMixDraft();
+    mixStatus.textContent = "Probing source durations and validating the mix…";
+    const data = await apiJson(`/api/mixes/${encodeURIComponent(currentMixId)}/plan`, { method: "POST" });
+    approvedMixPlan = data.plan;
+    const heading = document.createElement("h3"); heading.textContent = "Approved mix plan";
+    const list = document.createElement("ol");
+    for (const track of data.plan.tracks) { const item = document.createElement("li"); item.textContent = `${track.title} — ${formatMixDuration(track.duration)}`; list.append(item); }
+    const summary = document.createElement("p");
+    const transitionDurations = data.plan.transitions.map((transition) => `${transition.duration}s`).join(", ");
+    summary.textContent = `Crossfades by join: ${transitionDurations} · Source total: ${formatMixDuration(data.plan.totalSourceDuration)} · Crossfade overlap: ${formatMixDuration(data.plan.totalCrossfadeOverlap)} · Expected final: ${formatMixDuration(data.plan.expectedDuration)} · Output: ${data.plan.outputFilename}`;
+    const render = actionButton("Render WAV master", "compact", renderApprovedMix);
+    mixPlanDetails.replaceChildren(heading, list, summary, render);
+    mixStatus.textContent = "Review the complete plan, then explicitly confirm the local render.";
+  } catch (error) { mixStatus.textContent = error.message; }
+}
+
+async function renderApprovedMix(event) {
+  const plan = approvedMixPlan;
+  if (!plan || !window.confirm(buildMixConfirmation(plan))) { mixStatus.textContent = "Mix render cancelled. FFmpeg was not started."; return; }
+  const controls = [...document.querySelectorAll(".mix-section button, .mix-section input, .mix-section select")];
+  controls.forEach((control) => { control.disabled = true; });
+  mixStatus.textContent = "Rendering the local 24-bit WAV master…";
+  try {
+    const data = await apiJson(`/api/mixes/${encodeURIComponent(plan.mixId)}/render`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ outputFilename: plan.outputFilename, snapshot: plan.snapshot }),
+    });
+    await loadMixes(plan.mixId);
+    const link = document.createElement("a"); link.className = "download"; link.href = data.export.downloadUrl; link.download = data.export.filename; link.textContent = `Download ${data.export.filename}`;
+    mixPlanDetails.replaceChildren(link); mixStatus.textContent = "WAV master validated, saved, and ready to download.";
+  } catch (error) { mixStatus.textContent = error.message; }
+  finally { controls.forEach((control) => { control.disabled = false; }); }
 }
 
 async function apiJson(url, options) {

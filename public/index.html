@@ -99,6 +99,30 @@
       </div>
     </section>
 
+    <section class="mix-section" aria-labelledby="mix-heading">
+      <p class="eyebrow">LOCAL WAV MASTER</p>
+      <h2 id="mix-heading">Audio Mix Assembly</h2>
+      <p>Arrange existing Track Library recordings into a continuous local mix. Rendering never generates music or uploads anything.</p>
+      <label for="mix-select">Saved draft</label>
+      <select id="mix-select"><option value="">New mix</option></select>
+      <label for="mix-title">Mix title</label>
+      <input id="mix-title" maxlength="120" value="Untitled Mix">
+      <label for="mix-crossfade">Crossfade seconds (0–20)</label>
+      <input id="mix-crossfade" type="number" min="0" max="20" step="0.25" value="8">
+      <div class="mix-add-row">
+        <label for="mix-track-select">Add Track Library recording</label>
+        <select id="mix-track-select"><option value="">Choose a recording</option></select>
+        <button id="mix-add-track" type="button" class="secondary compact">Add track</button>
+      </div>
+      <ol id="mix-track-list" class="mix-track-list"></ol>
+      <div class="track-actions">
+        <button id="mix-save" type="button" class="secondary">Save draft</button>
+        <button id="mix-plan" type="button">Review mix plan</button>
+      </div>
+      <div id="mix-plan-details" class="mix-plan-details"></div>
+      <p id="mix-status" role="status" aria-live="polite"></p>
+    </section>
+
     <section class="library-section" aria-labelledby="library-heading">
       <div class="library-heading-row">
         <div>

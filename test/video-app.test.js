@@ -19,7 +19,18 @@ test("video API plans, renders, and downloads a completed mocked export", async 
     async check() {},
     async run(_executable, args) { await writeFile(args.at(-1), "downloadable mp4"); },
   };
-  const videoService = new VideoAssemblyService(output, library, { runner, randomUUID: () => "api-render" });
+  const videoService = new VideoAssemblyService(output, library, {
+    runner,
+    randomUUID: () => "api-render",
+    probeMedia: async (filePath) => filePath.endsWith(".mp3")
+      ? { duration: 2, streams: [{ codecType: "audio", codecName: "mp3", duration: 2 }] }
+      : filePath.includes("visual-assets")
+        ? { duration: 0.5, streams: [{ codecType: "video", codecName: "h264", width: 320, height: 180 }] }
+        : { duration: 2, streams: [
+          { codecType: "video", codecName: "h264", width: 320, height: 180 },
+          { codecType: "audio", codecName: "aac", duration: 2 },
+        ] },
+  });
   await videoService.initialize();
   await writeFile(path.join(output, "visual-assets", "Harbour.mp4"), "animation");
   const projects = { list: () => [], reconcileLibraryLinks: async () => [] };

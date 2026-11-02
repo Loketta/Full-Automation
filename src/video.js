@@ -14,7 +14,10 @@ export class VideoAssemblyService {
     this.exportsDirectory = path.join(this.outputDirectory, VIDEO_EXPORTS_DIRECTORY);
     this.library = library;
     this.executable = dependencies.executable ?? "ffmpeg";
+    this.probeExecutable = dependencies.probeExecutable ?? "ffprobe";
     this.runner = dependencies.runner ?? new SpawnProcessRunner();
+    this.probeMedia = dependencies.probeMedia ?? ((filePath) => probeMedia(this.runner, this.probeExecutable, filePath));
+    this.durationToleranceSeconds = dependencies.durationToleranceSeconds ?? 0.75;
     this.fs = {
       mkdir: dependencies.mkdir ?? mkdir,
       readdir: dependencies.readdir ?? readdir,
@@ -34,11 +37,12 @@ export class VideoAssemblyService {
     await this.#removeInterruptedOutputs();
     try {
       await this.runner.check(this.executable);
+      await this.runner.check(this.probeExecutable);
       this.available = true;
       this.availabilityError = undefined;
     } catch (error) {
       this.available = false;
-      this.availabilityError = `FFmpeg is unavailable at “${this.executable}”. Install FFmpeg locally or set FFMPEG_PATH, then restart the app. ${error.message}`;
+      this.availabilityError = `FFmpeg/FFprobe is unavailable at “${this.executable}” / “${this.probeExecutable}”. Install both tools locally or set FFMPEG_PATH and FFPROBE_PATH, then restart the app. ${error.message}`;
     }
     return this.status();
   }
@@ -49,6 +53,7 @@ export class VideoAssemblyService {
       error: this.availabilityError,
       active: Boolean(this.activeJob),
       executable: this.executable,
+      probeExecutable: this.probeExecutable,
     };
   }
 
@@ -91,12 +96,18 @@ export class VideoAssemblyService {
       const inputs = await this.#validateInputs(trackId, assetFilename);
       const finalPath = this.#exportPath(outputFilename);
       if (await this.#exists(finalPath)) throw new VideoConflictError("That video output already exists. Create a new export plan; nothing was overwritten.");
+      const [audioMedia, assetMedia] = await Promise.all([
+        this.probeMedia(inputs.audioPath),
+        this.probeMedia(inputs.assetPath),
+      ]);
       const temporaryFilename = `.rendering-${this.randomUUID()}.mp4`;
       temporaryPath = path.join(this.exportsDirectory, temporaryFilename);
       const args = buildFfmpegArgs({ audioPath: inputs.audioPath, assetPath: inputs.assetPath, outputPath: temporaryPath });
       await this.runner.run(this.executable, args, { onProgress });
       const output = await this.fs.stat(temporaryPath);
       if (!output.isFile?.() || output.size <= 0) throw new VideoRenderError("FFmpeg completed without producing a valid MP4.");
+      const outputMedia = await this.probeMedia(temporaryPath);
+      validateExportMedia({ audioMedia, assetMedia, outputMedia, toleranceSeconds: this.durationToleranceSeconds });
       try {
         await this.fs.publish(temporaryPath, finalPath);
       } catch (error) {
@@ -186,12 +197,66 @@ export function buildFfmpegArgs({ audioPath, assetPath, outputPath }) {
 
 export class SpawnProcessRunner {
   check(executable) {
-    return runSpawn(executable, ["-version"]);
+    return runSpawnCapture(executable, ["-version"]);
   }
 
   run(executable, args, { onProgress } = {}) {
     return runSpawn(executable, args, onProgress);
   }
+
+  capture(executable, args) {
+    return runSpawnCapture(executable, args);
+  }
+}
+
+export async function probeMedia(runner, executable, filePath) {
+  const result = await runner.capture(executable, [
+    "-v", "error",
+    "-show_entries", "format=duration:stream=codec_type,codec_name,width,height,duration",
+    "-of", "json",
+    filePath,
+  ]);
+  try {
+    const parsed = JSON.parse(result.stdout);
+    return {
+      duration: numericDuration(parsed?.format?.duration),
+      streams: Array.isArray(parsed?.streams) ? parsed.streams.map((stream) => ({
+        codecType: stream.codec_type,
+        codecName: stream.codec_name,
+        width: Number(stream.width) || undefined,
+        height: Number(stream.height) || undefined,
+        duration: numericDuration(stream.duration),
+      })) : [],
+    };
+  } catch (error) {
+    throw new VideoRenderError(`FFprobe returned invalid media metadata: ${error.message}`);
+  }
+}
+
+export function validateExportMedia({ audioMedia, assetMedia, outputMedia, toleranceSeconds = 0.75 }) {
+  const sourceAudio = audioMedia?.streams?.find((stream) => stream.codecType === "audio");
+  const sourceVideo = assetMedia?.streams?.find((stream) => stream.codecType === "video");
+  const outputVideo = outputMedia?.streams?.find((stream) => stream.codecType === "video");
+  const outputAudio = outputMedia?.streams?.find((stream) => stream.codecType === "audio");
+  const audioDuration = mediaDuration(audioMedia, sourceAudio);
+  const outputDuration = mediaDuration(outputMedia, outputAudio);
+  if (!sourceAudio || !Number.isFinite(audioDuration) || audioDuration <= 0) {
+    throw new VideoRenderError("The source recording has no valid audio stream or duration.");
+  }
+  if (!sourceVideo || !sourceVideo.width || !sourceVideo.height) {
+    throw new VideoRenderError("The visual asset has no valid video stream or dimensions.");
+  }
+  if (outputVideo?.codecName !== "h264") throw new VideoRenderError("The rendered MP4 does not contain H.264 video.");
+  if (outputAudio?.codecName !== "aac") throw new VideoRenderError("The rendered MP4 does not contain AAC audio.");
+  const expectedWidth = sourceVideo.width - (sourceVideo.width % 2);
+  const expectedHeight = sourceVideo.height - (sourceVideo.height % 2);
+  if (outputVideo.width !== expectedWidth || outputVideo.height !== expectedHeight || outputVideo.width % 2 || outputVideo.height % 2) {
+    throw new VideoRenderError(`The rendered dimensions ${outputVideo.width ?? "?"}x${outputVideo.height ?? "?"} do not match the expected ${expectedWidth}x${expectedHeight}.`);
+  }
+  if (!Number.isFinite(outputDuration) || Math.abs(outputDuration - audioDuration) > toleranceSeconds) {
+    throw new VideoRenderError(`The rendered duration ${outputDuration ?? "unknown"}s does not closely match the complete source audio duration ${audioDuration}s.`);
+  }
+  return { audioDuration, outputDuration, width: outputVideo.width, height: outputVideo.height };
 }
 
 function runSpawn(executable, args, onProgress) {
@@ -209,6 +274,25 @@ function runSpawn(executable, args, onProgress) {
       else reject(new VideoRenderError(signal
         ? `FFmpeg was interrupted by signal ${signal}. No completed video was published.`
         : `FFmpeg exited with code ${code}. No completed video was published. ${stderr.trim()}`));
+    });
+  });
+}
+
+function runSpawnCapture(executable, args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(executable, args, { shell: false, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    child.stdout?.setEncoding("utf8");
+    child.stderr?.setEncoding("utf8");
+    child.stdout?.on("data", (chunk) => { stdout += chunk; });
+    child.stderr?.on("data", (chunk) => { stderr = `${stderr}${chunk}`.slice(-4000); });
+    child.once("error", (error) => reject(new VideoUnavailableError(`Could not start ${executable}: ${error.message}`)));
+    child.once("close", (code, signal) => {
+      if (code === 0) resolve({ stdout, stderr });
+      else reject(new VideoRenderError(signal
+        ? `${executable} was interrupted by signal ${signal}.`
+        : `${executable} exited with code ${code}. ${stderr.trim()}`));
     });
   });
 }
@@ -237,6 +321,15 @@ async function assertNonEmptyFile(statFn, filePath, message) {
 
 function slug(value) {
   return String(value ?? "").normalize("NFKD").replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-|-$/g, "").toLowerCase();
+}
+
+function numericDuration(value) {
+  const duration = Number(value);
+  return Number.isFinite(duration) && duration > 0 ? duration : undefined;
+}
+
+function mediaDuration(media, stream) {
+  return stream?.duration ?? media?.duration;
 }
 
 export class VideoValidationError extends Error { constructor(message) { super(message); this.statusCode = 400; } }

@@ -25,6 +25,7 @@ try {
   await batches.initialize();
   const videoService = new VideoAssemblyService(outputDirectory, library, {
     executable: process.env.FFMPEG_PATH || "ffmpeg",
+    probeExecutable: process.env.FFPROBE_PATH || "ffprobe",
   });
   const videoStatus = await videoService.initialize();
   if (!videoStatus.available) console.warn(videoStatus.error);

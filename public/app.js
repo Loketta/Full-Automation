@@ -39,6 +39,8 @@ const stopBatchButton = document.querySelector("#stop-batch");
 const batchStatus = document.querySelector("#batch-status");
 const batchCompleted = document.querySelector("#batch-completed");
 const projectProgress = document.querySelector("#project-progress");
+const availablePlanList = document.querySelector("#available-plan-list");
+const availablePlanStatus = document.querySelector("#available-plan-status");
 const mixSelect = document.querySelector("#mix-select");
 const mixTitle = document.querySelector("#mix-title");
 const mixCrossfade = document.querySelector("#mix-crossfade");
@@ -102,6 +104,7 @@ form.addEventListener("submit", async (event) => {
 refreshLibrary.addEventListener("click", loadLibrary);
 loadLibrary();
 loadProjects();
+loadProjectPlans();
 loadMixes();
 
 async function loadLibrary() {
@@ -411,7 +414,7 @@ document.querySelector("#delete-project").addEventListener("click", async () => 
   if (!window.confirm(`Delete project “${project.name}”? Generated MP3s will remain in the Track Library.`)) return;
   try {
     const data = await apiJson(`/api/projects/${encodeURIComponent(project.id)}`, { method: "DELETE" });
-    await loadProjects();
+    await Promise.all([loadProjects(), loadProjectPlans()]);
     projectStatus.textContent = data.message;
   } catch (error) {
     projectStatus.textContent = error.message;
@@ -438,6 +441,43 @@ addPlannedTrackForm.addEventListener("submit", async (event) => {
     projectStatus.textContent = error.message;
   }
 });
+
+async function loadProjectPlans() {
+  availablePlanStatus.textContent = "Loading repository plans…";
+  try {
+    const data = await apiJson("/api/project-plans");
+    availablePlanList.replaceChildren(...data.plans.map(createAvailablePlanCard));
+    availablePlanStatus.textContent = data.plans.length
+      ? `${data.plans.length} repository plan${data.plans.length === 1 ? "" : "s"} discovered.`
+      : "No repository project plans are available.";
+  } catch (error) { availablePlanStatus.textContent = error.message; }
+}
+
+function createAvailablePlanCard(plan) {
+  const card = document.createElement("article");
+  card.className = `available-plan-card${plan.valid ? "" : " invalid"}`;
+  const heading = document.createElement("h4"); heading.textContent = plan.valid ? plan.name : plan.id;
+  const details = document.createElement("p");
+  details.textContent = plan.valid ? `${plan.theme} · ${plan.trackCount} planned track${plan.trackCount === 1 ? "" : "s"}` : plan.error;
+  const state = document.createElement("p"); state.className = "status-badge"; state.textContent = plan.status;
+  card.append(heading, details, state);
+  if (plan.valid) {
+    const action = actionButton("Import into Projects", "compact", () => importRepositoryPlan(plan.id, action));
+    action.disabled = !plan.canImport;
+    card.append(action);
+  }
+  return card;
+}
+
+async function importRepositoryPlan(planId, button) {
+  button.disabled = true;
+  availablePlanStatus.textContent = "Importing the selected repository plan locally…";
+  try {
+    const data = await apiJson(`/api/project-plans/${encodeURIComponent(planId)}/import`, { method: "POST" });
+    await Promise.all([loadProjects(data.project.id), loadProjectPlans()]);
+    availablePlanStatus.textContent = "Project plan imported. No music was generated and no paid request was made.";
+  } catch (error) { availablePlanStatus.textContent = error.message; button.disabled = false; }
+}
 
 async function loadProjects(selectedId = projectSelect.value) {
   try {

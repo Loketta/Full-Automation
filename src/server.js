@@ -8,6 +8,7 @@ import { ProjectStore } from "./projects.js";
 import { BatchStore } from "./batches.js";
 import { recoverReplacementTransactions } from "./regeneration.js";
 import { VideoAssemblyService } from "./video.js";
+import { MixAssemblyService, MixStore } from "./mixes.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const port = Number.parseInt(process.env.PORT ?? "3000", 10);
@@ -29,12 +30,22 @@ try {
   });
   const videoStatus = await videoService.initialize();
   if (!videoStatus.available) console.warn(videoStatus.error);
+  const mixStore = new MixStore(outputDirectory);
+  await mixStore.initialize();
+  const mixService = new MixAssemblyService(outputDirectory, library, mixStore, {
+    ffmpeg: process.env.FFMPEG_PATH || "ffmpeg",
+    ffprobe: process.env.FFPROBE_PATH || "ffprobe",
+  });
+  const mixStatus = await mixService.initialize();
+  if (!mixStatus.available) console.warn(mixStatus.error);
   const app = createApp({
     client,
     library,
     projects,
     batches,
     videoService,
+    mixStore,
+    mixService,
     startupGenerationBlock: replacementRecovery.pending ? {
       blocked: true,
       outcomeUncertain: true,

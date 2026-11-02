@@ -7,8 +7,9 @@ import { assertGenerationSnapshot } from "./projects.js";
 import { BatchCoordinator } from "./batches.js";
 import { decorateProjectsWithRecordings, regenerateRejectedRecording } from "./regeneration.js";
 import { VIDEO_EXPORTS_DIRECTORY } from "./video.js";
+import { MIXES_DIRECTORY } from "./mixes.js";
 
-export function createApp({ client, library, projects, batches, videoService, outputDirectory, publicDirectory, logger = console, apiKey = "", startupGenerationBlock }) {
+export function createApp({ client, library, projects, batches, videoService, mixStore, mixService, outputDirectory, publicDirectory, logger = console, apiKey = "", startupGenerationBlock }) {
   const app = express();
   let generationInProgress = false;
   const batchCoordinator = batches ? new BatchCoordinator({
@@ -38,6 +39,10 @@ export function createApp({ client, library, projects, batches, videoService, ou
       response.setHeader("Cache-Control", "no-store");
       response.setHeader("Content-Disposition", "attachment");
     },
+  }));
+  if (mixService) app.use("/mixes", express.static(path.join(outputDirectory, MIXES_DIRECTORY), {
+    dotfiles: "deny", index: false, fallthrough: false,
+    setHeaders(response) { response.setHeader("Cache-Control", "no-store"); response.setHeader("Content-Disposition", "attachment"); },
   }));
 
   app.post("/api/generate", async (request, response) => {
@@ -105,6 +110,33 @@ export function createApp({ client, library, projects, batches, videoService, ou
       } catch (error) {
         return sendVideoError(response, error, logger);
       }
+    });
+  }
+
+  if (mixService && mixStore) {
+    app.get("/api/mixes", (_request, response) => response.json({ mixes: mixStore.list(), status: mixService.status() }));
+    app.post("/api/mixes", async (request, response) => {
+      try {
+        mixService.validateDraftTracks(request.body?.trackIds);
+        return response.status(201).json({ mix: await mixStore.create(request.body ?? {}) });
+      } catch (error) { return sendMixError(response, error, logger); }
+    });
+    app.patch("/api/mixes/:mixId", async (request, response) => {
+      try {
+        const current = mixStore.get(request.params.mixId);
+        mixService.validateDraftUpdate(request.body?.trackIds, current.trackIds);
+        return response.json({ mix: await mixStore.update(request.params.mixId, request.body ?? {}) });
+      } catch (error) { return sendMixError(response, error, logger); }
+    });
+    app.post("/api/mixes/:mixId/plan", async (request, response) => {
+      try { return response.json({ plan: await mixService.plan(request.params.mixId) }); }
+      catch (error) { return sendMixError(response, error, logger); }
+    });
+    app.post("/api/mixes/:mixId/render", async (request, response) => {
+      try {
+        const exported = await mixService.render({ mixId: request.params.mixId, outputFilename: request.body?.outputFilename, snapshot: request.body?.snapshot });
+        return response.status(201).json({ export: exported });
+      } catch (error) { return sendMixError(response, error, logger); }
     });
   }
 
@@ -367,6 +399,12 @@ function sendVideoError(response, error, logger) {
   if ([400, 404, 409, 503].includes(error?.statusCode)) return response.status(error.statusCode).json({ error: error.message });
   logger.error("Local video export failed:", { name: error?.name, message: error?.message, code: error?.code });
   return response.status(500).json({ error: error?.message || "Video rendering failed. No completed export was published. Check the terminal." });
+}
+
+function sendMixError(response, error, logger) {
+  if ([400, 404, 409, 503].includes(error?.statusCode)) return response.status(error.statusCode).json({ error: error.message });
+  logger.error("Local audio mix operation failed:", { name: error?.name, message: error?.message, code: error?.code });
+  return response.status(500).json({ error: error?.message || "Audio mix rendering failed. No completed master was published." });
 }
 
 function publicVideoPlan(plan) {

@@ -108,6 +108,16 @@ Copy the approved 12-second Harbour Docks master into the ignored `output/visual
 
 In the Track Library, choose **Create video**, select the animation, and review the recording, animation, and intended output filename. Confirm explicitly to run FFmpeg. The animation loops until the complete MP3 finishes; output uses H.264, AAC, `yuv420p`, aspect-ratio-preserving even dimensions, and `+faststart`. Before publication, FFprobe confirms both output streams, codecs, expected dimensions, and a duration closely matching the complete source audio. Completed files are stored under `output/videos/` and appear as download links. Existing exports are never overwritten, and invalid or interrupted `.rendering-…` files are removed.
 
+## Local audio mix assembly
+
+The **Audio Mix Assembly** section builds long-form WAV masters entirely on the local machine. Choose at least two existing Track Library recordings, arrange them in order, enter a title, and choose a global crossfade from 0–20 seconds (8 seconds by default). Drafts are saved in ignored `output/mixes.json`, can be reopened after a restart, and never alter the source MP3 files.
+
+Click **Review mix plan** to make FFprobe inspect the actual source files. The plan lists every recording and duration, the total source time, crossfade overlap, expected final duration, and collision-safe output filename. The calculation is `sum of source durations − sum of adjacent overlaps`; a crossfade must be shorter than both adjacent recordings. Production mixes must be strictly longer than 62 minutes (3,720 seconds) after all overlaps. Changing the draft or any source file invalidates the approved snapshot, so a new plan must be reviewed.
+
+After explicit confirmation, FFmpeg renders sequentially with equal-power crossfades (`qsin`) or clean concatenation when the duration is zero. The master is 24-bit PCM WAV, 48 kHz, stereo. FFprobe validates its codec, sample rate, channel count, duration, and minimum length before it is atomically published under ignored `output/mixes/`. Incomplete private temporary files are cleaned up, renders cannot overlap, existing exports are never overwritten, and completed masters appear as download links.
+
+Audio mixing uses the same `FFMPEG_PATH` and `FFPROBE_PATH` settings described above. Missing recordings, invalid media, crossfades that are too long, stale plans, failed renders, and failed validation are reported without modifying the original MP3s. No mix action calls Lyria, generates music, or uploads media.
+
 ## Test offline
 
 ```powershell
@@ -125,6 +135,8 @@ Batch tests cover sizes one through five, the server-side limit, saved snapshots
 Review and regeneration tests cover shared status persistence, progress counts, Reject-only eligibility, client/server prompt comparison, paid confirmation text, exactly-one-call behavior, batch overlap blocking, safe replacement, rollback, shared references, cleanup failure, and restart recovery. All audio generation responses are mocked.
 
 Most video tests use a mocked process runner. A real offline integration test uses FFmpeg to synthesize a shorter animation and longer audio, runs the production assembly pipeline, and uses FFprobe to verify looping, H.264/AAC streams, dimensions, and complete-audio duration. It skips with an explicit reason when either tool is unavailable locally; GitHub Actions installs both tools and requires the test to run. Tests never generate music or make paid requests.
+
+Mix tests cover saved and reopened drafts, ordering, duration calculations, crossfade validation, stale approvals, path and filename safety, collision handling, failures, interrupted temporary-file cleanup, and download behavior. A separate real offline integration test synthesizes short MP3 inputs, exercises the actual FFmpeg mix pipeline with an isolated test-only minimum-duration override, then uses FFprobe to verify 24-bit PCM, 48 kHz stereo output and the expected crossfaded duration. Production code always enforces the full 62-minute minimum.
 
 ## GitHub Actions tests
 
@@ -151,4 +163,4 @@ Implementation checked against Google's official [Lyria 3.5 music generation gui
 
 ## Scope
 
-This milestone intentionally has no cloud deployment, scheduled generation, GitHub Actions music-generation job, YouTube OAuth/upload, project mix assembly, audio crossfades, automatic visual generation, or recurring automation. GitHub Actions is used only for the offline test suite.
+This application intentionally has no cloud deployment, scheduled generation, GitHub Actions music-generation job, YouTube OAuth/upload, automatic visual generation, or recurring automation. Local audio mix assembly only combines recordings that already exist in the Track Library. GitHub Actions is used only for the offline test suite.

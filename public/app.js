@@ -10,6 +10,7 @@ import { buildBatchConfirmation, buildBatchSnapshot, describeBatch } from "./bat
 import { buildRegenerationConfirmation, formatProjectProgress, hasSubstantivePromptRevision } from "./regeneration-state.js";
 import { buildVideoConfirmation } from "./video-state.js";
 import { buildMixConfirmation, buildMixTrackViewModels, formatMixDuration, removeMixTrackId } from "./mix-state.js";
+import { buildProjectTrackOverview, focusPlannedTrack } from "./project-overview.js";
 
 const form = document.querySelector("#generate-form");
 const prompt = document.querySelector("#prompt");
@@ -28,7 +29,8 @@ const importProjectForm = document.querySelector("#import-project-form");
 const projectFile = document.querySelector("#project-file");
 const projectStatus = document.querySelector("#project-status");
 const projectSelect = document.querySelector("#project-select");
-const projectEditor = document.querySelector("#project-editor");
+const projectWorkspace = document.querySelector("#project-workspace");
+const trackOverviewGroups = document.querySelector("#track-overview-groups");
 const projectName = document.querySelector("#project-name");
 const projectTheme = document.querySelector("#project-theme");
 const projectCreated = document.querySelector("#project-created");
@@ -496,8 +498,8 @@ async function loadProjects(selectedId = projectSelect.value) {
 
 function renderSelectedProject(id) {
   const project = projects.find((candidate) => candidate.id === id);
-  projectEditor.hidden = !project;
-  if (!project) return;
+  projectWorkspace.hidden = !project;
+  if (!project) { trackOverviewGroups.replaceChildren(); return; }
   projectName.value = project.name;
   projectTheme.value = project.theme;
   projectCreated.textContent = `Created ${new Date(project.createdAt).toLocaleString()}`;
@@ -509,12 +511,36 @@ function renderSelectedProject(id) {
     empty.textContent = "No planned tracks yet.";
     plannedTrackList.append(empty);
   }
+  renderTrackOverview(project);
+}
+
+function renderTrackOverview(project) {
+  trackOverviewGroups.replaceChildren(...buildProjectTrackOverview(project).map((group) => {
+    const section = document.createElement("section"); section.className = "track-overview-group"; section.setAttribute("aria-labelledby", `overview-${group.key}`);
+    const heading = document.createElement("h4"); heading.id = `overview-${group.key}`; heading.textContent = `${group.label} (${group.count})`;
+    section.append(heading);
+    if (!group.count) {
+      const empty = document.createElement("p"); empty.className = "track-overview-empty"; empty.textContent = "No tracks"; section.append(empty);
+    } else {
+      const list = document.createElement("ul");
+      for (const track of group.tracks) {
+        const item = document.createElement("li");
+        const link = document.createElement("button"); link.type = "button"; link.className = "track-overview-link"; link.textContent = track.title;
+        link.setAttribute("aria-label", `Focus track editor for ${track.title}`);
+        link.addEventListener("click", () => focusPlannedTrack(track.id));
+        item.append(link); list.append(item);
+      }
+      section.append(list);
+    }
+    return section;
+  }));
 }
 
 function createPlannedTrackCard(project, track, index) {
   const card = document.createElement("article");
   card.className = "planned-card";
   card.dataset.plannedTrackId = track.id;
+  card.tabIndex = -1;
   const heading = document.createElement("div");
   heading.className = "library-heading-row";
   const number = document.createElement("strong");

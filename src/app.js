@@ -169,6 +169,14 @@ export function createApp({ client, library, projects, projectPlans, batches, vi
       try { return response.status(201).json({ project: await projectPlans.import(request.params.planId) }); }
       catch (error) { return sendProjectError(response, error, logger); }
     });
+    app.post("/api/project-plans/:planId/append-plan", async (request, response) => {
+      try { return response.json({ approval: await projectPlans.prepareAppend(request.params.planId, request.body?.targetProjectId) }); }
+      catch (error) { return sendProjectError(response, error, logger); }
+    });
+    app.post("/api/project-plans/:planId/append", async (request, response) => {
+      try { return response.status(201).json({ project: await projectPlans.append(request.params.planId, request.body) }); }
+      catch (error) { return sendProjectError(response, error, logger); }
+    });
   }
 
   app.patch("/api/projects/:projectId", async (request, response) => {

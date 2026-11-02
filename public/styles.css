@@ -30,6 +30,9 @@ audio, input[type="range"] { width: 100%; }
 .available-plan-card { padding: .8rem; border: 1px solid #303851; border-radius: 10px; }
 .available-plan-card.invalid { border-color: #c87842; }
 .available-plan-card p { margin: .35rem 0; }
+.append-plan-editor { margin-top: .8rem; padding-top: .8rem; border-top: 1px solid #3d4664; }
+.append-plan-editor select { width: 100%; margin-bottom: .75rem; }
+.append-plan-summary { padding: .7rem; border-left: 3px solid #8ef4d2; background: #14211f; }
 .nested-form { margin-top: 1rem; padding: 1rem; background: #101522; border: 1px solid #343b56; border-radius: 12px; }
 .nested-form h3 { margin-top: 0; }
 .nested-form textarea { min-height: 100px; }

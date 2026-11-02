@@ -4,6 +4,7 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 
 export const PROJECT_IMPORT_VERSION = 1;
 export const MAX_IMPORT_BYTES = 128 * 1024;
+export const MAX_PROJECT_TRACKS = 100;
 const PROJECTS_FILENAME = "projects.json";
 
 export class ProjectStore {
@@ -101,6 +102,29 @@ export class ProjectStore {
       const project = this.#findProject(projectId);
       const track = this.#newTrack(values);
       return this.#mutateAndPersist(() => project.tracks.push(track), track);
+    });
+  }
+
+  appendPlan(projectId, payload, approval) {
+    const validated = validateImport(payload);
+    return this.#exclusive(async () => {
+      const project = this.#findProject(projectId);
+      if (projectStateFingerprint(project) !== approval?.projectSnapshot) {
+        throw new ProjectConflictError("The target project changed after the append summary was prepared. Review and confirm it again.");
+      }
+      const marker = validateAppendMarker(approval);
+      if ((project.appendedPlans ?? []).some((entry) => entry.planId === marker.planId && entry.fingerprint === marker.fingerprint)) {
+        throw new ProjectConflictError("This exact repository plan version has already been appended to the selected project.");
+      }
+      if (project.tracks.length + validated.tracks.length > MAX_PROJECT_TRACKS) {
+        throw new ProjectValidationError(`A project may contain at most ${MAX_PROJECT_TRACKS} tracks.`);
+      }
+      const newTracks = validated.tracks.map((track) => this.#newTrack(track));
+      await this.#mutateAndPersist(() => {
+        project.tracks.push(...newTracks);
+        project.appendedPlans = [...(project.appendedPlans ?? []), marker];
+      }, project);
+      return { project: structuredClone(project), addedTrackIds: newTracks.map((track) => track.id) };
     });
   }
 
@@ -291,8 +315,8 @@ export function validateImport(payload) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new ProjectValidationError("Import must be a JSON object.");
   rejectUnknownFields(payload, ["version", "name", "theme", "tracks"], "Project");
   if (payload.version !== PROJECT_IMPORT_VERSION) throw new ProjectValidationError(`Import version must be ${PROJECT_IMPORT_VERSION}.`);
-  if (!Array.isArray(payload.tracks) || payload.tracks.length < 1 || payload.tracks.length > 100) {
-    throw new ProjectValidationError("Import must contain between 1 and 100 tracks.");
+  if (!Array.isArray(payload.tracks) || payload.tracks.length < 1 || payload.tracks.length > MAX_PROJECT_TRACKS) {
+    throw new ProjectValidationError(`Import must contain between 1 and ${MAX_PROJECT_TRACKS} tracks.`);
   }
   return {
     version: PROJECT_IMPORT_VERSION,
@@ -341,6 +365,18 @@ function validateSourcePlan(sourcePlan) {
     throw new ProjectValidationError("Repository plan provenance is invalid.");
   }
   return { id: sourcePlan.id, fingerprint: sourcePlan.fingerprint };
+}
+
+function validateAppendMarker(value) {
+  if (!value || typeof value.planId !== "string" || typeof value.fingerprint !== "string"
+    || !/^[a-f0-9]{64}$/.test(value.fingerprint) || typeof value.appendedAt !== "string") {
+    throw new ProjectValidationError("Repository plan append metadata is invalid.");
+  }
+  return { planId: value.planId, fingerprint: value.fingerprint, appendedAt: value.appendedAt };
+}
+
+export function projectStateFingerprint(project) {
+  return crypto.createHash("sha256").update(JSON.stringify(project)).digest("hex");
 }
 
 function isStoredProject(project) {

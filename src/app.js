@@ -123,7 +123,8 @@ export function createApp({ client, library, projects, batches, videoService, mi
     });
     app.patch("/api/mixes/:mixId", async (request, response) => {
       try {
-        mixService.validateDraftTracks(request.body?.trackIds);
+        const current = mixStore.get(request.params.mixId);
+        mixService.validateDraftUpdate(request.body?.trackIds, current.trackIds);
         return response.json({ mix: await mixStore.update(request.params.mixId, request.body ?? {}) });
       } catch (error) { return sendMixError(response, error, logger); }
     });

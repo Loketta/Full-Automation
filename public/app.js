@@ -9,7 +9,7 @@ import {
 import { buildBatchConfirmation, buildBatchSnapshot, describeBatch } from "./batch-state.js";
 import { buildRegenerationConfirmation, formatProjectProgress, hasSubstantivePromptRevision } from "./regeneration-state.js";
 import { buildVideoConfirmation } from "./video-state.js";
-import { buildMixConfirmation, formatMixDuration } from "./mix-state.js";
+import { buildMixConfirmation, buildMixTrackViewModels, formatMixDuration, removeMixTrackId } from "./mix-state.js";
 
 const form = document.querySelector("#generate-form");
 const prompt = document.querySelector("#prompt");
@@ -853,18 +853,23 @@ function renderMixTrackOptions() {
 }
 
 function renderMixDraftTracks() {
-  mixTrackIds = mixTrackIds.filter((id) => libraryTracks.some((track) => track.id === id));
-  mixTrackList.replaceChildren(...mixTrackIds.map((id, index) => {
-    const track = libraryTracks.find((candidate) => candidate.id === id);
+  const viewModels = buildMixTrackViewModels(mixTrackIds, libraryTracks);
+  mixTrackList.replaceChildren(...viewModels.map(({ id, track, missing }, index) => {
     const item = document.createElement("li"); item.className = "mix-track-item";
-    const title = document.createElement("strong"); title.textContent = `${index + 1}. ${track.title}`;
-    const audio = document.createElement("audio"); audio.controls = true; audio.preload = "metadata"; audio.src = `/audio/${encodeURIComponent(track.filename)}`;
+    if (missing) item.classList.add("missing");
+    const title = document.createElement("strong"); title.textContent = `${index + 1}. ${missing ? "Missing recording — unavailable" : track.title}`;
     const actions = document.createElement("div"); actions.className = "track-actions";
     const up = actionButton("Move up", "secondary compact", () => moveMixTrack(index, -1));
     const down = actionButton("Move down", "secondary compact", () => moveMixTrack(index, 1));
-    const remove = actionButton("Remove", "danger compact", () => { mixTrackIds.splice(index, 1); invalidateMixPlan(); renderMixDraftTracks(); });
+    const remove = actionButton("Remove", "danger compact", () => { mixTrackIds = removeMixTrackId(mixTrackIds, index); invalidateMixPlan(); renderMixDraftTracks(); });
     up.disabled = index === 0; down.disabled = index === mixTrackIds.length - 1;
-    actions.append(up, down, remove); item.append(title, audio, actions); return item;
+    actions.append(up, down, remove); item.append(title);
+    if (missing) {
+      const warning = document.createElement("p"); warning.textContent = `Recording ID ${id} is missing. Restore it to the Track Library or explicitly remove it before planning.`; item.append(warning);
+    } else {
+      const audio = document.createElement("audio"); audio.controls = true; audio.preload = "metadata"; audio.src = `/audio/${encodeURIComponent(track.filename)}`; item.append(audio);
+    }
+    item.append(actions); return item;
   }));
 }
 

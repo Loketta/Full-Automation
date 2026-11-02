@@ -18,7 +18,8 @@ test("mix API saves a draft, requires its approved snapshot, renders, and downlo
     await writeFile(path.join(output, filename), `${title} source audio`);
     tracks.push(await library.registerGenerated({ filename, title, prompt: `${title} instrumental prompt` }));
   }
-  const store = new MixStore(output, { randomUUID: () => "mix-api" });
+  let storeId = 0;
+  const store = new MixStore(output, { randomUUID: () => `mix-api-${++storeId}` });
   await store.initialize();
   const runner = {
     async check() {},
@@ -68,4 +69,16 @@ test("mix API saves a draft, requires its approved snapshot, renders, and downlo
   assert.equal(download.status, 200);
   assert.match(download.headers.get("content-disposition"), /attachment/);
   assert.equal(await download.text(), "validated wav master");
+
+  const missingIds = [tracks[0].id, "unavailable-library-id", tracks[1].id];
+  const missingMix = await store.create({ title: "Unavailable Source", trackIds: missingIds, crossfadeSeconds: 8 });
+  const preserveResponse = await fetch(`${base}/api/mixes/${missingMix.id}`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title: "Unavailable Source Saved", trackIds: missingIds, crossfadeSeconds: 8 }),
+  });
+  assert.equal(preserveResponse.status, 200);
+  assert.deepEqual((await preserveResponse.json()).mix.trackIds, missingIds);
+  const missingPlanResponse = await fetch(`${base}/api/mixes/${missingMix.id}/plan`, { method: "POST" });
+  assert.equal(missingPlanResponse.status, 400);
+  assert.match((await missingPlanResponse.json()).error, /unavailable-library-id/);
 });

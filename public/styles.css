@@ -73,6 +73,8 @@ select { display: block; margin-top: .45rem; padding: .55rem .7rem; border: 1px 
 .mix-add-row select { width: 100%; margin-bottom: .75rem; }
 .mix-track-list { display: grid; gap: .65rem; padding-left: 1.5rem; }
 .mix-track-item { padding: .75rem; border: 1px solid #3d4664; border-radius: 10px; background: #0d101a; }
+.mix-track-item.missing { border-color: #c87842; }
+.mix-track-item.missing p { color: #ffc08f; }
 .mix-track-item audio { margin-top: .5rem; }
 .mix-plan-details { margin-top: 1rem; color: #bbc4dc; overflow-wrap: anywhere; }
 @media (max-width: 540px) { .title-row { align-items: stretch; flex-direction: column; } .library-heading-row { align-items: flex-start; } }

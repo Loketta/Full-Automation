@@ -139,11 +139,23 @@ export class MixAssemblyService {
   status() { return { available: this.available, error: this.error, active: this.active }; }
 
   validateDraftTracks(trackIds) {
-    if (!Array.isArray(trackIds) || trackIds.length < 2) throw new MixValidationError("Select at least two Track Library recordings.");
-    if (new Set(trackIds).size !== trackIds.length) throw new MixValidationError("A recording may appear only once in this mix.");
-    return trackIds.map((id) => {
-      try { return this.library.get(id); } catch { throw new MixValidationError("Every mix item must be an existing Track Library recording."); }
-    });
+    validateTrackIds(trackIds);
+    const tracks = [];
+    const missing = [];
+    for (const id of trackIds) {
+      try { tracks.push(this.library.get(id)); } catch { missing.push(id); }
+    }
+    if (missing.length) throw new MixValidationError(`Missing recordings need attention before planning: ${missing.join(", ")}. Restore them to the Track Library or explicitly remove them.`);
+    return tracks;
+  }
+
+  validateDraftUpdate(trackIds, existingTrackIds) {
+    validateTrackIds(trackIds);
+    const existing = new Set(existingTrackIds);
+    const introduced = trackIds.filter((id) => !existing.has(id));
+    for (const id of introduced) {
+      try { this.library.get(id); } catch { throw new MixValidationError(`New mix item ${id} must be an existing Track Library recording.`); }
+    }
   }
 
   async plan(mixId) {
@@ -263,9 +275,14 @@ function validateTransitions(tracks, transitions) {
 function normalizeDraft(value) {
   const title = String(value.title ?? "").trim();
   if (!title || title.length > 120) throw new MixValidationError("Mix title must be between 1 and 120 characters.");
-  if (!Array.isArray(value.trackIds)) throw new MixValidationError("Mix tracks are required.");
+  validateTrackIds(value.trackIds);
   const crossfadeSeconds = validateCrossfade(value.crossfadeSeconds ?? DEFAULT_CROSSFADE_SECONDS);
   return { id: value.id, title, trackIds: [...value.trackIds], crossfadeSeconds, transitions: buildTransitions(value.trackIds, crossfadeSeconds), exports: value.exports ?? [], createdAt: value.createdAt, updatedAt: value.updatedAt };
+}
+function validateTrackIds(trackIds) {
+  if (!Array.isArray(trackIds) || trackIds.length < 2) throw new MixValidationError("Select at least two Track Library recordings.");
+  if (trackIds.some((id) => typeof id !== "string" || !id.trim())) throw new MixValidationError("Every mix item must have a valid recording ID.");
+  if (new Set(trackIds).size !== trackIds.length) throw new MixValidationError("A recording may appear only once in this mix.");
 }
 function validateCrossfade(value) { const n = Number(value); if (!Number.isFinite(n) || n < 0 || n > 20) throw new MixValidationError("Crossfade must be between 0 and 20 seconds."); return n; }
 function approvalSnapshot(mix, tracks, transitions, summary) { return crypto.createHash("sha256").update(JSON.stringify({ id: mix.id, title: mix.title, updatedAt: mix.updatedAt, tracks: tracks.map((t) => ({ id: t.id, filename: t.filename, duration: t.duration, size: t.size, mtimeMs: t.mtimeMs })), transitions, summary })).digest("hex"); }

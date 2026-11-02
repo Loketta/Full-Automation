@@ -48,6 +48,21 @@ test("creates, edits, orders, and persists mix drafts with future-ready transiti
   assert.deepEqual(restarted.get(mix.id).transitions, [{ fromTrackId: reordered[0], toTrackId: reordered[1], duration: 5 }]);
 });
 
+test("saved drafts preserve missing recording IDs and order while planning fails closed", async (t) => {
+  const values = await fixture(t);
+  const ids = [values.tracks[0].id, "missing-recording-id", values.tracks[1].id];
+  const mix = await values.store.create({ title: "Missing Source", trackIds: ids, crossfadeSeconds: 8 });
+  await values.store.update(mix.id, { title: "Still Missing", trackIds: ids, crossfadeSeconds: 5 });
+
+  const restarted = new MixStore(values.output);
+  await restarted.initialize();
+  assert.deepEqual(restarted.get(mix.id).trackIds, ids);
+  await assert.rejects(() => values.service.plan(mix.id), /Missing recordings need attention before planning: missing-recording-id/);
+
+  values.service.validateDraftUpdate(ids, ids);
+  assert.throws(() => values.service.validateDraftUpdate([...ids, "new-missing-id"], ids), /must be an existing Track Library recording/);
+});
+
 test("duration calculation subtracts every crossfade overlap", () => {
   const tracks = [{ duration: 100 }, { duration: 200 }, { duration: 300 }];
   const summary = calculateMixDuration(tracks, [{ duration: 8 }, { duration: 4 }]);
@@ -91,7 +106,7 @@ test("planning uses FFprobe durations, reports summary, and rejects stale approv
 test("rejects invalid selections, missing recordings, paths, and crossfade values", async (t) => {
   const values = await fixture(t);
   assert.throws(() => values.service.validateDraftTracks([values.tracks[0].id]), /at least two/);
-  assert.throws(() => values.service.validateDraftTracks([values.tracks[0].id, "missing"]), /existing Track Library/);
+  assert.throws(() => values.service.validateDraftTracks([values.tracks[0].id, "missing"]), /Missing recordings need attention/);
   assert.throws(() => buildTransitions(["a", "b"], 21), MixValidationError);
   const mix = await values.store.create({ title: "Missing", trackIds: values.tracks.slice(0, 2).map((track) => track.id), crossfadeSeconds: 0 });
   await rm(path.join(values.output, values.tracks[0].filename));

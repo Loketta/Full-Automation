@@ -6,8 +6,9 @@ import { saveMp3 } from "./output.js";
 import { assertGenerationSnapshot } from "./projects.js";
 import { BatchCoordinator } from "./batches.js";
 import { decorateProjectsWithRecordings, regenerateRejectedRecording } from "./regeneration.js";
+import { VIDEO_EXPORTS_DIRECTORY } from "./video.js";
 
-export function createApp({ client, library, projects, batches, outputDirectory, publicDirectory, logger = console, apiKey = "", startupGenerationBlock }) {
+export function createApp({ client, library, projects, batches, videoService, outputDirectory, publicDirectory, logger = console, apiKey = "", startupGenerationBlock }) {
   const app = express();
   let generationInProgress = false;
   const batchCoordinator = batches ? new BatchCoordinator({
@@ -27,6 +28,15 @@ export function createApp({ client, library, projects, batches, outputDirectory,
     fallthrough: false,
     setHeaders(response) {
       response.setHeader("Cache-Control", "no-store");
+    },
+  }));
+  if (videoService) app.use("/videos", express.static(path.join(outputDirectory, VIDEO_EXPORTS_DIRECTORY), {
+    dotfiles: "deny",
+    index: false,
+    fallthrough: false,
+    setHeaders(response) {
+      response.setHeader("Cache-Control", "no-store");
+      response.setHeader("Content-Disposition", "attachment");
     },
   }));
 
@@ -65,6 +75,38 @@ export function createApp({ client, library, projects, batches, outputDirectory,
   app.get("/api/tracks", (_request, response) => {
     return response.json({ tracks: library.list() });
   });
+
+  if (videoService) {
+    app.get("/api/video-assets", async (_request, response) => {
+      try {
+        return response.json({ status: videoService.status(), assets: await videoService.listAssets() });
+      } catch (error) {
+        return sendVideoError(response, error, logger);
+      }
+    });
+
+    app.post("/api/videos/plan", async (request, response) => {
+      try {
+        const plan = await videoService.plan(request.body?.trackId, request.body?.assetFilename);
+        return response.json({ plan: publicVideoPlan(plan), status: videoService.status() });
+      } catch (error) {
+        return sendVideoError(response, error, logger);
+      }
+    });
+
+    app.post("/api/videos", async (request, response) => {
+      try {
+        const video = await videoService.render({
+          trackId: request.body?.trackId,
+          assetFilename: request.body?.assetFilename,
+          outputFilename: request.body?.outputFilename,
+        });
+        return response.status(201).json({ video });
+      } catch (error) {
+        return sendVideoError(response, error, logger);
+      }
+    });
+  }
 
   app.get("/api/projects", (_request, response) => response.json({
     projects: decorateProjectsWithRecordings(projects.list(), library.list()),
@@ -319,6 +361,16 @@ function sendBatchError(response, error, logger) {
   if ([400, 404, 409].includes(error?.statusCode)) return response.status(error.statusCode).json({ error: error.message });
   logger.error("Batch operation failed:", { name: error?.name, message: error?.message });
   return response.status(500).json({ error: "Batch state could not be safely updated. No further request was started. Check the VS Code terminal." });
+}
+
+function sendVideoError(response, error, logger) {
+  if ([400, 404, 409, 503].includes(error?.statusCode)) return response.status(error.statusCode).json({ error: error.message });
+  logger.error("Local video export failed:", { name: error?.name, message: error?.message, code: error?.code });
+  return response.status(500).json({ error: error?.message || "Video rendering failed. No completed export was published. Check the terminal." });
+}
+
+function publicVideoPlan(plan) {
+  return { track: plan.track, asset: plan.asset, outputFilename: plan.outputFilename };
 }
 
 function generationBlockedMessage(batchCoordinator, startupGenerationBlock) {

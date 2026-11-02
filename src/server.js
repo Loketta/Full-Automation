@@ -7,6 +7,7 @@ import { TrackLibrary } from "./library.js";
 import { ProjectStore } from "./projects.js";
 import { BatchStore } from "./batches.js";
 import { recoverReplacementTransactions } from "./regeneration.js";
+import { VideoAssemblyService } from "./video.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const port = Number.parseInt(process.env.PORT ?? "3000", 10);
@@ -22,11 +23,17 @@ try {
   await projects.reconcileLibraryLinks(library.list());
   const batches = new BatchStore(outputDirectory);
   await batches.initialize();
+  const videoService = new VideoAssemblyService(outputDirectory, library, {
+    executable: process.env.FFMPEG_PATH || "ffmpeg",
+  });
+  const videoStatus = await videoService.initialize();
+  if (!videoStatus.available) console.warn(videoStatus.error);
   const app = createApp({
     client,
     library,
     projects,
     batches,
+    videoService,
     startupGenerationBlock: replacementRecovery.pending ? {
       blocked: true,
       outcomeUncertain: true,

@@ -87,6 +87,26 @@ Only a current recording marked **Reject** shows regeneration controls. Its orig
 
 Replacement is recoverable: the rejected MP3 remains linked while the new audio and prepared library metadata are saved. The project is then durably switched to the new **Unreviewed** recording before the old MP3 is removed. Prepared and cleanup markers let startup either discard an uncommitted replacement or finish a committed cleanup. An old recording referenced by another planned track is retained. The interface intentionally exposes only the current recording, not version history.
 
+## Local video assembly
+
+Video export uses a local FFmpeg installation. It does not generate music, call Google, or upload anything. On Windows, download a trusted Windows build linked from [ffmpeg.org](https://ffmpeg.org/download.html), extract it to a permanent folder, and verify it in a new terminal:
+
+```powershell
+ffmpeg -version
+```
+
+If `ffmpeg` is not on `PATH`, add its executable location to `.env` and restart the app:
+
+```dotenv
+FFMPEG_PATH=C:\ffmpeg\bin\ffmpeg.exe
+```
+
+The app never downloads or installs FFmpeg. If the configured executable is missing, the browser displays a setup error while the rest of the application remains available.
+
+Copy the approved 12-second Harbour Docks master into the ignored `output/visual-assets/` directory, for example `output/visual-assets/harbour-docks-master.mp4`. Keep the original 1672 × 942 MP4 there; it is not committed to Git and is never modified. The directory is created automatically on startup.
+
+In the Track Library, choose **Create video**, select the animation, and review the recording, animation, and intended output filename. Confirm explicitly to run FFmpeg. The animation loops until the complete MP3 finishes; output uses H.264, AAC, `yuv420p`, aspect-ratio-preserving even dimensions, and `+faststart`. Completed files are stored under `output/videos/` and appear as download links. Existing exports are never overwritten, and interrupted `.rendering-…` files are removed on the next startup.
+
 ## Test offline
 
 ```powershell
@@ -102,6 +122,8 @@ Project tests cover creation, persistence, ordered imports, validation, editing,
 Batch tests cover sizes one through five, the server-side limit, saved snapshots and ordering, sequential execution, exact request bounds, stop and failure behaviour, duplicate starts, stale data, persistence failure, and restart interruption. Mock generators are used throughout, so these tests cannot contact Google or incur charges.
 
 Review and regeneration tests cover shared status persistence, progress counts, Reject-only eligibility, client/server prompt comparison, paid confirmation text, exactly-one-call behavior, batch overlap blocking, safe replacement, rollback, shared references, cleanup failure, and restart recovery. All audio generation responses are mocked.
+
+Video tests use a mocked process runner, so FFmpeg is not required for `npm test`. They cover command construction, looping and stream mapping, safe paths, input validation, missing FFmpeg, process failure/interruption, overlap prevention, no-overwrite output persistence, and HTTP download behavior. Tests never generate music or make paid requests.
 
 ## GitHub Actions tests
 
@@ -128,4 +150,4 @@ Implementation checked against Google's official [Lyria 3.5 music generation gui
 
 ## Scope
 
-This milestone intentionally has no cloud deployment, scheduled generation, GitHub Actions music-generation job, YouTube integration, or recurring automation. GitHub Actions is used only for the offline test suite.
+This milestone intentionally has no cloud deployment, scheduled generation, GitHub Actions music-generation job, YouTube OAuth/upload, project mix assembly, audio crossfades, automatic visual generation, or recurring automation. GitHub Actions is used only for the offline test suite.

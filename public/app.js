@@ -8,6 +8,7 @@ import {
 } from "./planned-track-state.js";
 import { buildBatchConfirmation, buildBatchSnapshot, describeBatch } from "./batch-state.js";
 import { buildRegenerationConfirmation, formatProjectProgress, hasSubstantivePromptRevision } from "./regeneration-state.js";
+import { buildVideoConfirmation } from "./video-state.js";
 
 const form = document.querySelector("#generate-form");
 const prompt = document.querySelector("#prompt");
@@ -181,13 +182,113 @@ function createTrackCard(track) {
     }
     showCardMessage(card, data.error || "Could not delete track.");
   });
-  actions.append(downloadTrack, deleteTrack);
+  const createVideo = document.createElement("button");
+  createVideo.type = "button";
+  createVideo.className = "secondary compact";
+  createVideo.textContent = "Create video";
+  createVideo.addEventListener("click", () => showVideoCreator(card, track, createVideo));
+  actions.append(downloadTrack, createVideo, deleteTrack);
 
   const titleRow = document.createElement("div");
   titleRow.className = "title-row";
   titleRow.append(title, saveTitle);
   card.append(titleRow, statusLabel, created, promptLabel, originalPrompt, audio, actions);
   return card;
+}
+
+async function showVideoCreator(card, track, trigger) {
+  trigger.disabled = true;
+  let panel = card.querySelector(".video-creator");
+  if (!panel) {
+    panel = document.createElement("div");
+    panel.className = "video-creator";
+    card.append(panel);
+  }
+  panel.replaceChildren();
+  const message = document.createElement("p");
+  message.className = "card-message";
+  message.setAttribute("role", "status");
+  message.setAttribute("aria-live", "polite");
+  message.textContent = "Loading local visual assets…";
+  panel.append(message);
+  try {
+    const data = await apiJson("/api/video-assets");
+    if (!data.status.available) throw new Error(data.status.error);
+    if (!data.assets.length) throw new Error("No MP4 visual assets found. Copy the Harbour Docks master into output/visual-assets and try again.");
+
+    const recording = document.createElement("p");
+    recording.textContent = `Recording: ${track.title} (${track.filename})`;
+    const assetLabel = document.createElement("label");
+    assetLabel.textContent = "Looping animation";
+    const assetSelect = document.createElement("select");
+    assetSelect.append(new Option("Choose an animation", ""));
+    for (const asset of data.assets) assetSelect.append(new Option(asset.filename, asset.filename));
+    assetLabel.append(assetSelect);
+    const preview = document.createElement("div");
+    preview.className = "video-plan";
+    const render = actionButton("Render MP4", "compact", async () => {
+      const plan = render.videoPlan;
+      if (!plan) return;
+      if (!window.confirm(buildVideoConfirmation(plan))) {
+        message.textContent = "Video export cancelled. FFmpeg was not started.";
+        return;
+      }
+      render.disabled = true;
+      assetSelect.disabled = true;
+      message.textContent = "Rendering locally with FFmpeg… The complete MP3 and animation remain unchanged.";
+      try {
+        const result = await apiJson("/api/videos", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            trackId: track.id,
+            assetFilename: plan.asset.filename,
+            outputFilename: plan.outputFilename,
+          }),
+        });
+        const link = document.createElement("a");
+        link.className = "download compact";
+        link.href = result.video.downloadUrl;
+        link.download = result.video.filename;
+        link.textContent = `Download ${result.video.filename}`;
+        preview.replaceChildren(link);
+        message.textContent = "Video export completed and was saved locally.";
+      } catch (error) {
+        message.textContent = error.message;
+        render.disabled = false;
+        assetSelect.disabled = false;
+      }
+    });
+    render.disabled = true;
+    assetSelect.addEventListener("change", async () => {
+      render.videoPlan = undefined;
+      render.disabled = true;
+      preview.replaceChildren();
+      if (!assetSelect.value) return;
+      message.textContent = "Validating inputs and choosing a safe output filename…";
+      try {
+        const planned = await apiJson("/api/videos/plan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ trackId: track.id, assetFilename: assetSelect.value }),
+        });
+        render.videoPlan = planned.plan;
+        const details = document.createElement("p");
+        details.textContent = `Recording: ${planned.plan.track.filename} · Animation: ${planned.plan.asset.filename} · Output: ${planned.plan.outputFilename}`;
+        preview.replaceChildren(details);
+        render.disabled = false;
+        message.textContent = "Review the recording, animation, and output filename, then explicitly start the local render.";
+      } catch (error) {
+        message.textContent = error.message;
+      }
+    });
+    message.textContent = "Choose a local MP4 animation.";
+    panel.prepend(recording, assetLabel, preview, render);
+  } catch (error) {
+    message.textContent = error.message;
+  } finally {
+    trigger.disabled = false;
+  }
 }
 
 async function updateTrack(id, changes, card) {

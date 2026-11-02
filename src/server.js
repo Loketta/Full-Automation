@@ -9,6 +9,7 @@ import { BatchStore } from "./batches.js";
 import { recoverReplacementTransactions } from "./regeneration.js";
 import { VideoAssemblyService } from "./video.js";
 import { MixAssemblyService, MixStore } from "./mixes.js";
+import { ProjectPlanService } from "./project-plans.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const port = Number.parseInt(process.env.PORT ?? "3000", 10);
@@ -20,6 +21,8 @@ try {
   await library.initialize();
   const projects = new ProjectStore(outputDirectory);
   await projects.initialize();
+  const projectPlans = new ProjectPlanService(path.join(projectRoot, "project-plans"), outputDirectory, projects);
+  await projectPlans.initialize();
   const replacementRecovery = await recoverReplacementTransactions(projects, library);
   await projects.reconcileLibraryLinks(library.list());
   const batches = new BatchStore(outputDirectory);
@@ -42,6 +45,7 @@ try {
     client,
     library,
     projects,
+    projectPlans,
     batches,
     videoService,
     mixStore,

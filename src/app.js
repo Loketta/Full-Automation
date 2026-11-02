@@ -9,7 +9,7 @@ import { decorateProjectsWithRecordings, regenerateRejectedRecording } from "./r
 import { VIDEO_EXPORTS_DIRECTORY } from "./video.js";
 import { MIXES_DIRECTORY } from "./mixes.js";
 
-export function createApp({ client, library, projects, batches, videoService, mixStore, mixService, outputDirectory, publicDirectory, logger = console, apiKey = "", startupGenerationBlock }) {
+export function createApp({ client, library, projects, projectPlans, batches, videoService, mixStore, mixService, outputDirectory, publicDirectory, logger = console, apiKey = "", startupGenerationBlock }) {
   const app = express();
   let generationInProgress = false;
   const batchCoordinator = batches ? new BatchCoordinator({
@@ -159,6 +159,17 @@ export function createApp({ client, library, projects, batches, videoService, mi
       return sendProjectError(response, error, logger);
     }
   });
+
+  if (projectPlans) {
+    app.get("/api/project-plans", async (_request, response) => {
+      try { return response.json({ plans: await projectPlans.list() }); }
+      catch (error) { return sendProjectError(response, error, logger); }
+    });
+    app.post("/api/project-plans/:planId/import", async (request, response) => {
+      try { return response.status(201).json({ project: await projectPlans.import(request.params.planId) }); }
+      catch (error) { return sendProjectError(response, error, logger); }
+    });
+  }
 
   app.patch("/api/projects/:projectId", async (request, response) => {
     try {

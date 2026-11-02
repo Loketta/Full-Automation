@@ -24,6 +24,8 @@ The app uses Google's official `@google/genai` 2.x JavaScript SDK and the curren
 
 Stop the server, keep your existing `.env` and `output/` folder in place, pull the latest `main`, and run `npm ci`. Then start the app with `npm start`. Neither `.env` nor `output/` is tracked by Git, and the startup import reads existing MP3s without rewriting them. An optional copy of the `output/` folder is still sensible before any software update.
 
+For a Windows ZIP installation, stop the server and back up `.env` plus the complete `output/` directory. Extract the new ZIP to a separate folder, copy your existing `.env` and `output/` into that folder without replacing them with example or empty files, run `npm ci`, and start the new copy. Keep the backup until the library, projects, and media appear normally.
+
 ## Run
 
 In the VS Code terminal:
@@ -70,6 +72,14 @@ Imports must be valid UTF-8 JSON no larger than 128 KB, with 1–100 tracks. Pro
 ```
 
 The browser includes a downloadable complete example at `public/examples/project-import-v1.json` and a formal JSON Schema at `public/examples/project-import-v1.schema.json`.
+
+### Repository project plans
+
+Codex can add reusable version 1 JSON plans directly under the tracked `project-plans/` directory. The server discovers only safe, direct `.json` files in that directory, validates them with the same limits and rules as manual imports, and lists them under **Available Project Plans**. Invalid plans are shown with a safe validation message and do not prevent startup.
+
+Choose **Import into Projects** to create the ordered Pending tracks through the existing project-import pipeline. Discovery and import are local file operations: they do not call Lyria, generate music, execute a batch, modify audio, or incur charges.
+
+The filename is the stable plan identifier and a SHA-256 content fingerprint identifies its version. Exact versions cannot be imported twice while their imported project exists. If the repository file changes, the browser marks a revised version as available without overwriting the earlier project or its edits. Revisions require an explicit import and create a separate project. If an imported project is deleted, its durable history remains in ignored `output/project-plan-imports.json`, and the same version becomes explicitly reimportable.
 
 ## Controlled batch generation
 
@@ -129,6 +139,8 @@ Tests use mocked Lyria responses, need no API key, make no network requests, and
 Library tests use temporary folders and cover existing-file imports, idempotent scans, persistence across restart, renaming, review status, deletion, atomic metadata output, and directory traversal protection.
 
 Project tests cover creation, persistence, ordered imports, validation, editing, generated-track linking and recovery, deletion without audio loss, reference reconciliation, and metadata-write failures. All project management and import tests are offline.
+
+Repository-plan tests cover discovery, existing-schema validation, malformed and oversized files, path and symlink safety, ordered imports, duplicate protection, durable history, revised plans, deletion and explicit reimport, and API isolation from paid generation.
 
 Batch tests cover sizes one through five, the server-side limit, saved snapshots and ordering, sequential execution, exact request bounds, stop and failure behaviour, duplicate starts, stale data, persistence failure, and restart interruption. Mock generators are used throughout, so these tests cannot contact Google or incur charges.
 

@@ -25,6 +25,11 @@ audio, input[type="range"] { width: 100%; }
 .projects-section { margin-top: 3rem; }
 .projects-section > h2 { font-size: 2rem; margin: .25rem 0; }
 .project-tools { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; }
+.available-plans { margin: 1.25rem 0; padding: 1rem; border: 1px solid #3d4664; border-radius: 12px; background: #0d101a; }
+.available-plan-list { display: grid; gap: .75rem; }
+.available-plan-card { padding: .8rem; border: 1px solid #303851; border-radius: 10px; }
+.available-plan-card.invalid { border-color: #c87842; }
+.available-plan-card p { margin: .35rem 0; }
 .nested-form { margin-top: 1rem; padding: 1rem; background: #101522; border: 1px solid #343b56; border-radius: 12px; }
 .nested-form h3 { margin-top: 0; }
 .nested-form textarea { min-height: 100px; }

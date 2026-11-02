@@ -61,7 +61,7 @@ export class ProjectStore {
     });
   }
 
-  import(payload) {
+  import(payload, sourcePlan) {
     const validated = validateImport(payload);
     return this.#exclusive(async () => {
       const project = {
@@ -71,6 +71,7 @@ export class ProjectStore {
         createdAt: this.now().toISOString(),
         tracks: validated.tracks.map((track) => this.#newTrack(track)),
       };
+      if (sourcePlan) project.sourcePlan = validateSourcePlan(sourcePlan);
       return this.#mutateAndPersist(() => this.data.projects.push(project), project);
     });
   }
@@ -332,6 +333,14 @@ function validateText(value, label, minimum, maximum) {
     throw new ProjectValidationError(`${label} must be between ${minimum} and ${maximum} characters.`);
   }
   return text;
+}
+
+function validateSourcePlan(sourcePlan) {
+  if (!sourcePlan || typeof sourcePlan.id !== "string" || typeof sourcePlan.fingerprint !== "string"
+    || !sourcePlan.id || !/^[a-f0-9]{64}$/.test(sourcePlan.fingerprint)) {
+    throw new ProjectValidationError("Repository plan provenance is invalid.");
+  }
+  return { id: sourcePlan.id, fingerprint: sourcePlan.fingerprint };
 }
 
 function isStoredProject(project) {

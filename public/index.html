@@ -65,7 +65,8 @@
       <label for="project-select">Selected project</label>
       <select id="project-select"><option value="">Choose a project</option></select>
 
-      <div id="project-editor" hidden>
+      <div id="project-workspace" class="project-workspace" hidden>
+      <div id="project-editor">
         <div class="project-editor-actions">
           <button id="save-project" type="button">Save project details</button>
           <button id="delete-project" class="danger" type="button">Delete project only</button>
@@ -103,6 +104,12 @@
           <textarea id="planned-prompt" minlength="10" maxlength="2000" required></textarea>
           <button type="submit">Add pending track</button>
         </form>
+      </div>
+      <aside id="track-overview" class="track-overview" aria-labelledby="track-overview-heading">
+        <h3 id="track-overview-heading">Track Overview</h3>
+        <p class="track-meta">Titles grouped by current generation and review status.</p>
+        <div id="track-overview-groups"></div>
+      </aside>
       </div>
     </section>
 

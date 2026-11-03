@@ -138,8 +138,8 @@ export class MixAssemblyService {
 
   status() { return { available: this.available, error: this.error, active: this.active }; }
 
-  validateDraftTracks(trackIds) {
-    validateTrackIds(trackIds);
+  validateDraftTracks(trackIds, minimumTracks = 2) {
+    validateTrackIds(trackIds, minimumTracks);
     const tracks = [];
     const missing = [];
     for (const id of trackIds) {
@@ -158,32 +158,58 @@ export class MixAssemblyService {
     }
   }
 
+  async listRecordings() {
+    this.#assertAvailable();
+    const results = [];
+    for (const track of this.library.list()) {
+      try {
+        const inspected = await this.#inspectRecording(track);
+        results.push({ id: track.id, title: track.title, filename: track.filename, duration: inspected.duration });
+      } catch (error) {
+        results.push({ id: track.id, title: track.title, filename: track.filename, error: error.message });
+      }
+    }
+    return results;
+  }
+
+  async preview({ trackIds, crossfadeSeconds }) {
+    this.#assertAvailable();
+    const inspected = await this.#inspect(trackIds, crossfadeSeconds, 0);
+    return publicInspection(inspected, this.minimumDurationSeconds);
+  }
+
   async plan(mixId) {
     this.#assertAvailable();
     const mix = this.store.get(mixId);
-    const tracks = this.validateDraftTracks(mix.trackIds);
-    const plannedTracks = [];
-    for (const track of tracks) {
-      const filePath = this.#audioPath(track.filename);
-      await assertFile(this.fs.stat, filePath);
-      const media = await this.probe(filePath);
-      const audio = media.streams?.find((stream) => stream.codecType === "audio");
-      const duration = audio?.duration ?? media.duration;
-      if (!audio || !Number.isFinite(duration) || duration <= 0) throw new MixValidationError(`Recording “${track.title}” has no valid audio duration.`);
-      const details = await this.fs.stat(filePath);
-      plannedTracks.push({ id: track.id, title: track.title, filename: track.filename, duration, size: details.size, mtimeMs: details.mtimeMs, filePath });
-    }
-    const transitions = buildTransitions(mix.trackIds, mix.crossfadeSeconds);
-    const summary = calculateMixDuration(plannedTracks, transitions);
-    validateTransitions(plannedTracks, transitions);
+    const { plannedTracks, transitions, ...summary } = await this.#inspect(mix.trackIds, mix.crossfadeSeconds);
     if (!(summary.expectedDuration > this.minimumDurationSeconds)) {
-      throw new MixValidationError(`Expected mix duration must be strictly greater than ${formatDuration(this.minimumDurationSeconds)}.`);
+      throw new MixValidationError(`Expected mix duration is ${formatDuration(summary.expectedDuration)} and must be strictly greater than ${formatDuration(this.minimumDurationSeconds)}.`);
     }
     const base = slug(mix.title) || "audio-mix";
     let outputFilename = `${base}.wav`;
     for (let suffix = 2; await exists(this.fs.stat, this.#mixPath(outputFilename)); suffix += 1) outputFilename = `${base}-${suffix}.wav`;
     const snapshot = approvalSnapshot(mix, plannedTracks, transitions, summary);
     return { mixId, title: mix.title, tracks: plannedTracks.map(({ filePath, size, mtimeMs, ...track }) => track), transitions, ...summary, outputFilename, snapshot };
+  }
+
+  async #inspect(trackIds, crossfadeSeconds, minimumTracks = 2) {
+    const tracks = this.validateDraftTracks(trackIds, minimumTracks);
+    const plannedTracks = [];
+    for (const track of tracks) plannedTracks.push(await this.#inspectRecording(track));
+    const transitions = buildTransitions(trackIds, crossfadeSeconds);
+    validateTransitions(plannedTracks, transitions);
+    return { plannedTracks, transitions, ...calculateMixDuration(plannedTracks, transitions) };
+  }
+
+  async #inspectRecording(track) {
+    const filePath = this.#audioPath(track.filename);
+    await assertFile(this.fs.stat, filePath);
+    const media = await this.probe(filePath);
+    const audio = media.streams?.find((stream) => stream.codecType === "audio");
+    const duration = audio?.duration ?? media.duration;
+    if (!audio || !Number.isFinite(duration) || duration <= 0) throw new MixValidationError(`Recording “${track.title}” has no valid audio duration.`);
+    const details = await this.fs.stat(filePath);
+    return { id: track.id, title: track.title, filename: track.filename, duration, size: details.size, mtimeMs: details.mtimeMs, filePath };
   }
 
   async render({ mixId, outputFilename, snapshot }) {
@@ -279,10 +305,19 @@ function normalizeDraft(value) {
   const crossfadeSeconds = validateCrossfade(value.crossfadeSeconds ?? DEFAULT_CROSSFADE_SECONDS);
   return { id: value.id, title, trackIds: [...value.trackIds], crossfadeSeconds, transitions: buildTransitions(value.trackIds, crossfadeSeconds), exports: value.exports ?? [], createdAt: value.createdAt, updatedAt: value.updatedAt };
 }
-function validateTrackIds(trackIds) {
-  if (!Array.isArray(trackIds) || trackIds.length < 2) throw new MixValidationError("Select at least two Track Library recordings.");
+function validateTrackIds(trackIds, minimumTracks = 2) {
+  if (!Array.isArray(trackIds) || trackIds.length < minimumTracks) throw new MixValidationError("Select at least two Track Library recordings.");
   if (trackIds.some((id) => typeof id !== "string" || !id.trim())) throw new MixValidationError("Every mix item must have a valid recording ID.");
   if (new Set(trackIds).size !== trackIds.length) throw new MixValidationError("A recording may appear only once in this mix.");
+}
+function publicInspection(inspected, minimumDuration) {
+  const { plannedTracks, transitions, totalSourceDuration, totalCrossfadeOverlap, expectedDuration } = inspected;
+  return {
+    tracks: plannedTracks.map(({ filePath, size, mtimeMs, ...track }) => track), transitions,
+    totalSourceDuration, totalCrossfadeOverlap, expectedDuration, minimumDuration,
+    meetsMinimum: expectedDuration > minimumDuration,
+    shortfallSeconds: Math.max(0, minimumDuration - expectedDuration),
+  };
 }
 function validateCrossfade(value) { const n = Number(value); if (!Number.isFinite(n) || n < 0 || n > 20) throw new MixValidationError("Crossfade must be between 0 and 20 seconds."); return n; }
 function approvalSnapshot(mix, tracks, transitions, summary) { return crypto.createHash("sha256").update(JSON.stringify({ id: mix.id, title: mix.title, updatedAt: mix.updatedAt, tracks: tracks.map((t) => ({ id: t.id, filename: t.filename, duration: t.duration, size: t.size, mtimeMs: t.mtimeMs })), transitions, summary })).digest("hex"); }

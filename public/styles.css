@@ -93,7 +93,10 @@ select { display: block; margin-top: .45rem; padding: .55rem .7rem; border: 1px 
 .mix-section { margin-top: 3rem; }
 .mix-section > h2 { font-size: 2rem; margin: .25rem 0; }
 .mix-add-row { margin-top: 1rem; }
-.mix-add-row select { width: 100%; margin-bottom: .75rem; }
+.mix-recording-list { display: grid; gap: .5rem; max-height: 360px; margin-top: .75rem; overflow-y: auto; }
+.mix-recording-option { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .6rem; align-items: center; padding: .65rem; border: 1px solid #3d4664; border-radius: 9px; background: #0d101a; }
+.mix-recording-option p { margin: .2rem 0 0; color: #aeb8d1; font-size: .9rem; }
+.mix-duration-preview { margin: 1rem 0; padding: .8rem; border-left: 3px solid #8ef4d2; background: #14211f; color: #dffdf3; }
 .mix-track-list { display: grid; gap: .65rem; padding-left: 1.5rem; }
 .mix-track-item { padding: .75rem; border: 1px solid #3d4664; border-radius: 10px; background: #0d101a; }
 .mix-track-item.missing { border-color: #c87842; }

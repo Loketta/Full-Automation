@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildMixConfirmation, buildMixTrackViewModels, formatMixDuration, removeMixTrackId } from "../public/mix-state.js";
+import { addAcceptedProjectRecordings, addRecordingToMix, buildMixConfirmation, buildMixTrackViewModels, describeMixDuration, formatMixDuration, removeMixTrackId } from "../public/mix-state.js";
 
 test("mix UI formats duration and confirmation includes the complete approved plan", () => {
   assert.equal(formatMixDuration(3721), "62:01");
@@ -14,6 +14,28 @@ test("mix UI formats duration and confirmation includes the complete approved pl
   assert.match(message, /Expected duration: 63:12/);
   assert.match(message, /night-mix\.wav/);
   assert.match(message, /does not generate music or upload/);
+});
+
+test("direct recording addition prevents duplicates and accepted project addition preserves both orders", () => {
+  assert.deepEqual(addRecordingToMix(["existing"], "new"), { trackIds: ["existing", "new"], added: true });
+  assert.deepEqual(addRecordingToMix(["existing"], "existing"), { trackIds: ["existing"], added: false });
+  const project = { tracks: [
+    { status: "Generated", recording: { id: "accepted-two", reviewStatus: "Keep" } },
+    { status: "Generated", recording: { id: "rejected", reviewStatus: "Reject" } },
+    { status: "Pending" },
+    { status: "Generated", recording: { id: "accepted-one", reviewStatus: "Keep" } },
+    { status: "Generated", recording: { id: "accepted-one", reviewStatus: "Keep" } },
+  ] };
+  assert.deepEqual(addAcceptedProjectRecordings(["existing", "accepted-two"], project), {
+    trackIds: ["existing", "accepted-two", "accepted-one"], addedCount: 1, skippedCount: 2, acceptedCount: 3,
+  });
+});
+
+test("duration description reports source, overlap, estimate, strict boundary, and exact shortfall", () => {
+  const below = describeMixDuration({ totalSourceDuration: 3600, totalCrossfadeOverlap: 0, expectedDuration: 3600, minimumDuration: 3720, meetsMinimum: false, shortfallSeconds: 120 });
+  assert.match(below, /Source total: 60:00/); assert.match(below, /Shortfall: 2:00/); assert.match(below, /strictly more than 62:00/);
+  const boundary = describeMixDuration({ totalSourceDuration: 3720, totalCrossfadeOverlap: 0, expectedDuration: 3720, minimumDuration: 3720, meetsMinimum: false, shortfallSeconds: 0 });
+  assert.match(boundary, /must exceed 62:00 by a positive duration/);
 });
 
 test("mix editor preserves missing recording positions until explicitly removed and restores their display", () => {

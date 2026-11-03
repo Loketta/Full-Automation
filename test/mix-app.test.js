@@ -53,6 +53,16 @@ test("mix API saves a draft, requires its approved snapshot, renders, and downlo
   const { plan } = await planResponse.json();
   assert.equal(plan.expectedDuration, 3.5);
 
+  const recordingResponse = await fetch(`${base}/api/mix-recordings`);
+  assert.equal(recordingResponse.status, 200);
+  assert.deepEqual((await recordingResponse.json()).recordings.map((recording) => recording.duration), [2, 2]);
+  const previewResponse = await fetch(`${base}/api/mixes/preview`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ trackIds: tracks.map((track) => track.id), crossfadeSeconds: 0.5 }),
+  });
+  assert.equal(previewResponse.status, 200);
+  assert.equal((await previewResponse.json()).preview.expectedDuration, 3.5);
+
   const staleResponse = await fetch(`${base}/api/mixes/${mix.id}/render`, {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ outputFilename: plan.outputFilename, snapshot: "stale" }),

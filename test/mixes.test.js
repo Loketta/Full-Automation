@@ -69,6 +69,31 @@ test("duration calculation subtracts every crossfade overlap", () => {
   assert.deepEqual(summary, { totalSourceDuration: 600, totalCrossfadeOverlap: 12, expectedDuration: 588 });
 });
 
+test("diagnostic preview reports actual below-minimum duration, overlap, shortfall, and exact boundary", async (t) => {
+  const values = await fixture(t, { probe: async () => ({ duration: 1864, streams: [{ codecType: "audio", codecName: "mp3", duration: 1864 }] }) });
+  const below = await values.service.preview({ trackIds: values.tracks.slice(0, 2).map((track) => track.id), crossfadeSeconds: 8 });
+  assert.equal(below.totalSourceDuration, 3728);
+  assert.equal(below.totalCrossfadeOverlap, 8);
+  assert.equal(below.expectedDuration, 3720);
+  assert.equal(below.meetsMinimum, false);
+  assert.equal(below.shortfallSeconds, 0);
+  const boundaryMix = await values.store.create({ title: "Boundary", trackIds: values.tracks.slice(0, 2).map((track) => track.id), crossfadeSeconds: 8 });
+  await assert.rejects(() => values.service.plan(boundaryMix.id), /is 62:00 and must be strictly greater/);
+
+  const one = await values.service.preview({ trackIds: [values.tracks[0].id], crossfadeSeconds: 8 });
+  assert.equal(one.expectedDuration, 1864);
+  assert.equal(one.shortfallSeconds, 1856);
+});
+
+test("recording duration discovery isolates missing or invalid recordings", async (t) => {
+  const values = await fixture(t);
+  await rm(path.join(values.output, values.tracks[1].filename));
+  const recordings = await values.service.listRecordings();
+  assert.equal(recordings.find((recording) => recording.id === values.tracks[0].id).duration, 1900);
+  assert.match(recordings.find((recording) => recording.id === values.tracks[1].id).error, /missing or invalid/);
+  await assert.rejects(() => values.service.preview({ trackIds: [values.tracks[1].id], crossfadeSeconds: 0 }), /missing or invalid/);
+});
+
 test("production planning strictly requires more than 62 minutes and validates adjacent durations", async (t) => {
   const exact = await fixture(t, { probe: async () => ({ duration: 1862, streams: [{ codecType: "audio", codecName: "mp3", duration: 1862 }] }) });
   const exactMix = await exact.store.create({ title: "Exact", trackIds: exact.tracks.slice(0, 2).map((track) => track.id), crossfadeSeconds: 4 });

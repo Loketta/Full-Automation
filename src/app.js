@@ -115,6 +115,14 @@ export function createApp({ client, library, projects, projectPlans, batches, vi
 
   if (mixService && mixStore) {
     app.get("/api/mixes", (_request, response) => response.json({ mixes: mixStore.list(), status: mixService.status() }));
+    app.get("/api/mix-recordings", async (_request, response) => {
+      try { return response.json({ recordings: await mixService.listRecordings() }); }
+      catch (error) { return sendMixError(response, error, logger); }
+    });
+    app.post("/api/mixes/preview", async (request, response) => {
+      try { return response.json({ preview: await mixService.preview(request.body ?? {}) }); }
+      catch (error) { return sendMixError(response, error, logger); }
+    });
     app.post("/api/mixes", async (request, response) => {
       try {
         mixService.validateDraftTracks(request.body?.trackIds);

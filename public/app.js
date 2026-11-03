@@ -11,6 +11,7 @@ import { buildRegenerationConfirmation, formatProjectProgress, hasSubstantivePro
 import { buildVideoConfirmation } from "./video-state.js";
 import { buildMixConfirmation, buildMixTrackViewModels, formatMixDuration, removeMixTrackId } from "./mix-state.js";
 import { buildProjectTrackOverview, focusPlannedTrack } from "./project-overview.js";
+import { buildAppendConfirmation } from "./project-plan-state.js";
 
 const form = document.querySelector("#generate-form");
 const prompt = document.querySelector("#prompt");
@@ -463,12 +464,64 @@ function createAvailablePlanCard(plan) {
   details.textContent = plan.valid ? `${plan.theme} · ${plan.trackCount} planned track${plan.trackCount === 1 ? "" : "s"}` : plan.error;
   const state = document.createElement("p"); state.className = "status-badge"; state.textContent = plan.status;
   card.append(heading, details, state);
+  if (plan.appendedTargets?.length) {
+    const appended = document.createElement("p"); appended.className = "track-meta";
+    appended.textContent = `This version is already appended to: ${plan.appendedTargets.map((target) => target.name).join(", ")}.`;
+    card.append(appended);
+  }
   if (plan.valid) {
-    const action = actionButton("Import into Projects", "compact", () => importRepositoryPlan(plan.id, action));
+    const actions = document.createElement("div"); actions.className = "track-actions";
+    const action = actionButton("Import as New Project", "compact", () => importRepositoryPlan(plan.id, action));
     action.disabled = !plan.canImport;
-    card.append(action);
+    const append = actionButton("Append to Existing Project", "secondary compact", () => showAppendProjectPlan(card, plan));
+    actions.append(action, append); card.append(actions);
   }
   return card;
+}
+
+function showAppendProjectPlan(card, plan) {
+  card.querySelector(".append-plan-editor")?.remove();
+  const editor = document.createElement("div"); editor.className = "append-plan-editor";
+  const label = document.createElement("label"); label.textContent = "Destination project";
+  const select = document.createElement("select"); select.setAttribute("aria-label", `Destination project for ${plan.name}`);
+  select.append(new Option("Choose a project", ""));
+  const appendedIds = new Set(plan.appendedTargets?.map((target) => target.id));
+  for (const project of projects) {
+    const option = new Option(project.name, project.id); option.disabled = appendedIds.has(project.id); select.append(option);
+  }
+  const review = actionButton("Review append summary", "compact", async () => {
+    if (!select.value) { availablePlanStatus.textContent = "Choose a destination project before reviewing the append."; return; }
+    review.disabled = true;
+    try {
+      const data = await apiJson(`/api/project-plans/${encodeURIComponent(plan.id)}/append-plan`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ targetProjectId: select.value }),
+      });
+      renderAppendApproval(editor, plan, data.approval);
+      availablePlanStatus.textContent = "Review the append summary, then explicitly confirm.";
+    } catch (error) { availablePlanStatus.textContent = error.message; }
+    finally { review.disabled = false; }
+  });
+  label.append(select); editor.append(label, review); card.append(editor);
+}
+
+function renderAppendApproval(editor, plan, approval) {
+  editor.querySelector(".append-plan-summary")?.remove();
+  const summary = document.createElement("div"); summary.className = "append-plan-summary";
+  const text = document.createElement("p");
+  text.textContent = `${approval.planName}: add ${approval.trackCount} track${approval.trackCount === 1 ? "" : "s"} after ${approval.existingTrackCount} existing track${approval.existingTrackCount === 1 ? "" : "s"} in ${approval.targetProjectName}. Existing tracks and recordings remain unchanged.${approval.revised ? " This is a revised plan version." : ""}`;
+  const confirm = actionButton("Confirm append", "compact", async () => {
+    if (!window.confirm(buildAppendConfirmation(approval))) { availablePlanStatus.textContent = "Append cancelled. No project data changed."; return; }
+    confirm.disabled = true;
+    try {
+      const data = await apiJson(`/api/project-plans/${encodeURIComponent(plan.id)}/append`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetProjectId: approval.targetProjectId, planFingerprint: approval.planFingerprint, projectSnapshot: approval.projectSnapshot }),
+      });
+      await Promise.all([loadProjects(data.project.id), loadProjectPlans()]);
+      availablePlanStatus.textContent = `${approval.trackCount} pending track${approval.trackCount === 1 ? "" : "s"} appended. Existing recordings were unchanged; no music was generated.`;
+    } catch (error) { availablePlanStatus.textContent = error.message; confirm.disabled = false; }
+  });
+  summary.append(text, confirm); editor.append(summary);
 }
 
 async function importRepositoryPlan(planId, button) {

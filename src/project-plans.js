@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import path from "node:path";
 import { constants } from "node:fs";
 import { mkdir, open, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
-import { MAX_IMPORT_BYTES, ProjectConflictError, ProjectNotFoundError, ProjectValidationError, validateImport } from "./projects.js";
+import { MAX_IMPORT_BYTES, MAX_PROJECT_TRACKS, ProjectConflictError, ProjectNotFoundError, ProjectValidationError, projectStateFingerprint, validateImport } from "./projects.js";
 
 const HISTORY_FILENAME = "project-plan-imports.json";
 
@@ -56,6 +56,60 @@ export class ProjectPlanService {
     });
   }
 
+  prepareAppend(planId, targetProjectId) {
+    return this.#exclusive(async () => {
+      const plan = await this.#validPlan(planId);
+      const project = this.projects.list().find((candidate) => candidate.id === targetProjectId);
+      if (!project) throw new ProjectNotFoundError("Target project not found.");
+      this.#assertAppendAllowed(project, plan);
+      return {
+        planId: plan.id, planName: plan.payload.name, planFingerprint: plan.fingerprint,
+        targetProjectId: project.id, targetProjectName: project.name,
+        trackCount: plan.payload.tracks.length, existingTrackCount: project.tracks.length,
+        projectSnapshot: projectStateFingerprint(project),
+        revised: (project.appendedPlans ?? []).some((entry) => entry.planId === plan.id && entry.fingerprint !== plan.fingerprint),
+      };
+    });
+  }
+
+  append(planId, approval) {
+    return this.#exclusive(async () => {
+      const plan = await this.#validPlan(planId);
+      if (approval?.planFingerprint !== plan.fingerprint) {
+        throw new ProjectConflictError("The repository plan changed after the append summary was prepared. Review and confirm the current version.");
+      }
+      const project = this.projects.list().find((candidate) => candidate.id === approval?.targetProjectId);
+      if (!project) throw new ProjectNotFoundError("Target project not found.");
+      this.#assertAppendAllowed(project, plan);
+      const appendedAt = this.now().toISOString();
+      const result = await this.projects.appendPlan(project.id, plan.payload, {
+        planId: plan.id, fingerprint: plan.fingerprint, appendedAt, projectSnapshot: approval?.projectSnapshot,
+      });
+      await this.#recordImport({
+        operation: "append", planId: plan.id, fingerprint: plan.fingerprint,
+        projectId: project.id, targetProjectId: project.id, addedTrackIds: result.addedTrackIds, importedAt: appendedAt,
+      });
+      return result.project;
+    });
+  }
+
+  async #validPlan(planId) {
+    assertSafePlanId(planId);
+    const plan = (await this.#discover()).find((candidate) => candidate.id === planId);
+    if (!plan) throw new ProjectNotFoundError("Repository project plan not found.");
+    if (!plan.valid) throw new ProjectValidationError(plan.error);
+    return plan;
+  }
+
+  #assertAppendAllowed(project, plan) {
+    if ((project.appendedPlans ?? []).some((entry) => entry.planId === plan.id && entry.fingerprint === plan.fingerprint)) {
+      throw new ProjectConflictError("This exact repository plan version has already been appended to the selected project.");
+    }
+    if (project.tracks.length + plan.payload.tracks.length > MAX_PROJECT_TRACKS) {
+      throw new ProjectValidationError(`Appending this plan would exceed the ${MAX_PROJECT_TRACKS}-track project limit.`);
+    }
+  }
+
   async #discover() {
     const directoryRealPath = await this.fs.realpath(this.plansDirectory);
     if (path.resolve(directoryRealPath) !== this.plansDirectory) throw new ProjectValidationError("The project-plans directory cannot be a symbolic link.");
@@ -96,11 +150,14 @@ export class ProjectPlanService {
 
   #publicPlan(plan) {
     if (!plan.valid) return { id: plan.id, valid: false, error: plan.error, status: "Invalid" };
-    const currentProjects = this.projects.list().filter((project) => project.sourcePlan?.id === plan.id);
+    const projects = this.projects.list();
+    const currentProjects = projects.filter((project) => project.sourcePlan?.id === plan.id);
     const exact = currentProjects.find((project) => project.sourcePlan.fingerprint === plan.fingerprint);
-    const prior = this.history.imports.some((entry) => entry.planId === plan.id && entry.fingerprint === plan.fingerprint);
-    const status = exact ? "Imported" : currentProjects.length ? "Revised version available" : prior ? "Previously imported project deleted — reimport available" : "Available";
-    return { id: plan.id, valid: true, name: plan.payload.name, theme: plan.payload.theme, trackCount: plan.payload.tracks.length, fingerprint: plan.fingerprint, status, canImport: !exact };
+    const appendedTargets = projects.filter((project) => (project.appendedPlans ?? []).some((entry) => entry.planId === plan.id && entry.fingerprint === plan.fingerprint))
+      .map((project) => ({ id: project.id, name: project.name }));
+    const prior = this.history.imports.some((entry) => entry.operation !== "append" && entry.planId === plan.id && entry.fingerprint === plan.fingerprint);
+    const status = exact ? "Imported" : currentProjects.length ? "Revised version available" : appendedTargets.length ? `Appended to ${appendedTargets.length} project${appendedTargets.length === 1 ? "" : "s"}` : prior ? "Previously imported project deleted — reimport available" : "Available";
+    return { id: plan.id, valid: true, name: plan.payload.name, theme: plan.payload.theme, trackCount: plan.payload.tracks.length, fingerprint: plan.fingerprint, status, canImport: !exact, appendedTargets };
   }
 
   async #recordImport(entry) {

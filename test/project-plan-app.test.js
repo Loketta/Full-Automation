@@ -39,4 +39,19 @@ test("project plan API discovers and imports locally without invoking a generati
   const duplicate = await fetch(`${base}/api/project-plans/api-plan.json/import`, { method: "POST" });
   assert.equal(duplicate.status, 409);
   assert.equal(generationAccessed, false);
+
+  const target = await projects.create({ name: "Existing Target", theme: "Preserved target theme" });
+  const approvalResponse = await fetch(`${base}/api/project-plans/api-plan.json/append-plan`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ targetProjectId: target.id }),
+  });
+  assert.equal(approvalResponse.status, 200);
+  const { approval } = await approvalResponse.json();
+  assert.equal(approval.targetProjectName, "Existing Target");
+  const appendResponse = await fetch(`${base}/api/project-plans/api-plan.json/append`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ targetProjectId: target.id, planFingerprint: approval.planFingerprint, projectSnapshot: approval.projectSnapshot }),
+  });
+  assert.equal(appendResponse.status, 201);
+  assert.deepEqual((await appendResponse.json()).project.tracks.map((track) => [track.title, track.status]), [["Pending One", "Pending"]]);
+  assert.equal(generationAccessed, false);
 });

@@ -17,7 +17,7 @@ test("compilation video API requires an approved snapshot, renders, and download
       : filePath.includes("visual-assets")
         ? { formatName: "mp4", duration: 0.8, streams: [{ codecType: "video", width: 320, height: 180, duration: 0.8 }] }
         : { formatName: "mov,mp4", duration: 3.2, streams: [
-          { codecType: "video", codecName: "h264", width: 1920, height: 1080, pixelFormat: "yuv420p" },
+          { codecType: "video", codecName: "h264", width: 1920, height: 1080, pixelFormat: "yuv420p", duration: 3.2 },
           { codecType: "audio", codecName: "aac", sampleRate: 48000, channels: 2, duration: 3.2 },
         ] },
   });

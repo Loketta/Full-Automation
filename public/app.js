@@ -9,7 +9,7 @@ import {
 import { batchSelectionUiState, buildBatchConfirmation, buildBatchSnapshot, describeBatch, isBatchEligibleTrack, reconcileBatchSelection, updateBatchSelection } from "./batch-state.js";
 import { buildRegenerationConfirmation, formatProjectProgress, hasSubstantivePromptRevision } from "./regeneration-state.js";
 import { buildVideoConfirmation } from "./video-state.js";
-import { buildMixConfirmation, buildMixTrackViewModels, formatMixDuration, removeMixTrackId } from "./mix-state.js";
+import { addAcceptedProjectRecordings, addRecordingToMix, buildMixConfirmation, buildMixTrackViewModels, describeMixDuration, formatMixDuration, removeMixTrackId } from "./mix-state.js";
 import { buildProjectTrackOverview, focusPlannedTrack } from "./project-overview.js";
 import { buildAppendConfirmation } from "./project-plan-state.js";
 
@@ -50,8 +50,10 @@ const availablePlanStatus = document.querySelector("#available-plan-status");
 const mixSelect = document.querySelector("#mix-select");
 const mixTitle = document.querySelector("#mix-title");
 const mixCrossfade = document.querySelector("#mix-crossfade");
-const mixTrackSelect = document.querySelector("#mix-track-select");
+const mixRecordingFilter = document.querySelector("#mix-recording-filter");
+const mixRecordingList = document.querySelector("#mix-recording-list");
 const mixTrackList = document.querySelector("#mix-track-list");
+const mixDurationPreview = document.querySelector("#mix-duration-preview");
 const mixStatus = document.querySelector("#mix-status");
 const mixPlanDetails = document.querySelector("#mix-plan-details");
 let projects = [];
@@ -60,6 +62,9 @@ let mixes = [];
 let mixTrackIds = [];
 let currentMixId = "";
 let approvedMixPlan;
+let mixRecordingDetails = [];
+let mixPreviewRequest = 0;
+let mixPreviewTimer;
 let activeBatchId;
 let batchPollTimer;
 let selectedBatchProjectId = "";
@@ -125,6 +130,7 @@ async function loadLibrary() {
     libraryTracks = data.tracks;
     renderTracks(data.tracks);
     renderMixTrackOptions();
+    loadMixRecordingDetails();
     libraryStatus.textContent = data.tracks.length
       ? `${data.tracks.length} track${data.tracks.length === 1 ? "" : "s"} saved locally.`
       : "No tracks yet. Generate one above or add MP3 files to the output folder and restart the app.";
@@ -393,19 +399,15 @@ overviewGenerateBatchButton.addEventListener("click", startBatch);
 overviewClearBatchButton.addEventListener("click", () => { selectedBatchTrackIds = []; syncBatchSelectionUi(); });
 stopBatchButton.addEventListener("click", stopBatch);
 mixSelect.addEventListener("change", () => selectMixDraft(mixSelect.value));
-document.querySelector("#mix-add-track").addEventListener("click", () => {
-  if (!mixTrackSelect.value || mixTrackIds.includes(mixTrackSelect.value)) return;
-  mixTrackIds.push(mixTrackSelect.value);
-  invalidateMixPlan();
-  renderMixDraftTracks();
-});
+mixRecordingFilter.addEventListener("input", renderMixRecordingOptions);
+document.querySelector("#mix-add-accepted").addEventListener("click", addAllAcceptedToMix);
 document.querySelector("#mix-save").addEventListener("click", async () => {
   try { await saveMixDraft(); mixStatus.textContent = "Mix draft saved locally."; }
   catch (error) { mixStatus.textContent = error.message; }
 });
 document.querySelector("#mix-plan").addEventListener("click", reviewMixPlan);
-mixTitle.addEventListener("input", invalidateMixPlan);
-mixCrossfade.addEventListener("input", invalidateMixPlan);
+mixTitle.addEventListener("input", () => invalidateMixPlan());
+mixCrossfade.addEventListener("input", () => invalidateMixPlan(true));
 
 document.querySelector("#save-project").addEventListener("click", async () => {
   if (!projectSelect.value) return;
@@ -1014,15 +1016,63 @@ function selectMixDraft(id) {
   mixTitle.value = mix?.title ?? "Untitled Mix";
   mixCrossfade.value = mix?.crossfadeSeconds ?? 8;
   mixTrackIds = mix ? [...mix.trackIds] : [];
-  invalidateMixPlan(); renderMixDraftTracks();
+  invalidateMixPlan(true); renderMixTrackOptions();
 }
 
 function renderMixTrackOptions() {
-  const selected = mixTrackSelect.value;
-  mixTrackSelect.replaceChildren(new Option("Choose a recording", ""));
-  for (const track of libraryTracks) mixTrackSelect.append(new Option(`${track.title} — ${track.filename}`, track.id));
-  if (libraryTracks.some((track) => track.id === selected)) mixTrackSelect.value = selected;
+  renderMixRecordingOptions();
   renderMixDraftTracks();
+}
+
+async function loadMixRecordingDetails() {
+  try {
+    const data = await apiJson("/api/mix-recordings");
+    mixRecordingDetails = data.recordings;
+    renderMixRecordingOptions();
+  } catch (error) {
+    mixRecordingDetails = libraryTracks.map((track) => ({ ...track, error: error.message }));
+    renderMixRecordingOptions();
+  }
+}
+
+function renderMixRecordingOptions() {
+  const query = mixRecordingFilter.value.trim().toLocaleLowerCase();
+  const details = new Map(mixRecordingDetails.map((recording) => [recording.id, recording]));
+  const visible = libraryTracks.filter((track) => !query || `${track.title} ${track.filename}`.toLocaleLowerCase().includes(query));
+  if (!visible.length) {
+    const empty = document.createElement("p"); empty.className = "track-meta";
+    empty.textContent = libraryTracks.length ? "No recordings match this filter." : "No Track Library recordings are available.";
+    mixRecordingList.replaceChildren(empty); return;
+  }
+  mixRecordingList.replaceChildren(...visible.map((track) => {
+    const option = document.createElement("article"); option.className = "mix-recording-option";
+    const text = document.createElement("div"); const title = document.createElement("strong"); title.textContent = track.title;
+    const metadata = document.createElement("p"); const detail = details.get(track.id);
+    metadata.textContent = detail?.duration ? `${formatMixDuration(detail.duration)} · ${track.filename}` : detail?.error ? `Duration unavailable · ${detail.error}` : `Loading duration… · ${track.filename}`;
+    text.append(title, metadata);
+    const included = mixTrackIds.includes(track.id);
+    const add = actionButton(included ? "Included" : "Add", included ? "secondary compact" : "compact", () => addSingleRecordingToMix(track.id));
+    add.disabled = included;
+    option.append(text, add); return option;
+  }));
+}
+
+function addSingleRecordingToMix(trackId) {
+  const result = addRecordingToMix(mixTrackIds, trackId);
+  mixTrackIds = result.trackIds;
+  if (result.added) mixStatus.textContent = "Recording added to the end of the current mix.";
+  invalidateMixPlan(true); renderMixTrackOptions();
+}
+
+function addAllAcceptedToMix() {
+  const project = projects.find((candidate) => candidate.id === projectSelect.value);
+  if (!project) { mixStatus.textContent = "Select a Music Project before using Add All Accepted."; return; }
+  const result = addAcceptedProjectRecordings(mixTrackIds, project);
+  mixTrackIds = result.trackIds;
+  mixStatus.textContent = result.acceptedCount
+    ? `Added ${result.addedCount} accepted recording${result.addedCount === 1 ? "" : "s"}; skipped ${result.skippedCount} already included.`
+    : "The selected project has no generated recordings marked Keep.";
+  invalidateMixPlan(true); renderMixTrackOptions();
 }
 
 function renderMixDraftTracks() {
@@ -1034,7 +1084,7 @@ function renderMixDraftTracks() {
     const actions = document.createElement("div"); actions.className = "track-actions";
     const up = actionButton("Move up", "secondary compact", () => moveMixTrack(index, -1));
     const down = actionButton("Move down", "secondary compact", () => moveMixTrack(index, 1));
-    const remove = actionButton("Remove", "danger compact", () => { mixTrackIds = removeMixTrackId(mixTrackIds, index); invalidateMixPlan(); renderMixDraftTracks(); });
+    const remove = actionButton("Remove", "danger compact", () => { mixTrackIds = removeMixTrackId(mixTrackIds, index); invalidateMixPlan(true); renderMixTrackOptions(); });
     up.disabled = index === 0; down.disabled = index === mixTrackIds.length - 1;
     actions.append(up, down, remove); item.append(title);
     if (missing) {
@@ -1050,10 +1100,35 @@ function moveMixTrack(index, offset) {
   const destination = index + offset;
   if (destination < 0 || destination >= mixTrackIds.length) return;
   [mixTrackIds[index], mixTrackIds[destination]] = [mixTrackIds[destination], mixTrackIds[index]];
-  invalidateMixPlan(); renderMixDraftTracks();
+  invalidateMixPlan(true); renderMixDraftTracks();
 }
 
-function invalidateMixPlan() { approvedMixPlan = undefined; mixPlanDetails.replaceChildren(); }
+function invalidateMixPlan(refreshPreview = false) {
+  approvedMixPlan = undefined; mixPlanDetails.replaceChildren();
+  if (refreshPreview) scheduleMixDurationPreview();
+}
+
+function scheduleMixDurationPreview() {
+  clearTimeout(mixPreviewTimer);
+  const requestId = ++mixPreviewRequest;
+  mixDurationPreview.textContent = "Loading actual recording durations with FFprobe…";
+  mixPreviewTimer = setTimeout(() => refreshMixDurationPreview(requestId), 200);
+}
+
+async function refreshMixDurationPreview(requestId = ++mixPreviewRequest) {
+  try {
+    const data = await apiJson("/api/mixes/preview", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ trackIds: mixTrackIds, crossfadeSeconds: Number(mixCrossfade.value) }),
+    });
+    if (requestId !== mixPreviewRequest) return undefined;
+    mixDurationPreview.textContent = describeMixDuration(data.preview);
+    return data.preview;
+  } catch (error) {
+    if (requestId === mixPreviewRequest) mixDurationPreview.textContent = `Duration preview unavailable: ${error.message}`;
+    return undefined;
+  }
+}
 
 async function saveMixDraft() {
   const body = JSON.stringify({ title: mixTitle.value, trackIds: mixTrackIds, crossfadeSeconds: Number(mixCrossfade.value) });
@@ -1068,7 +1143,23 @@ async function saveMixDraft() {
 async function reviewMixPlan() {
   try {
     await saveMixDraft();
-    mixStatus.textContent = "Probing source durations and validating the mix…";
+    mixStatus.textContent = "Probing source durations and calculating the mix…";
+    const previewData = await apiJson("/api/mixes/preview", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ trackIds: mixTrackIds, crossfadeSeconds: Number(mixCrossfade.value) }),
+    });
+    const preview = previewData.preview;
+    mixDurationPreview.textContent = describeMixDuration(preview);
+    if (!preview.meetsMinimum) {
+      const heading = document.createElement("h3"); heading.textContent = "Mix duration review";
+      const list = document.createElement("ol");
+      for (const track of preview.tracks) { const item = document.createElement("li"); item.textContent = `${track.title} — ${formatMixDuration(track.duration)}`; list.append(item); }
+      const summary = document.createElement("p"); summary.textContent = describeMixDuration(preview);
+      const blocked = actionButton("Render unavailable — mix is too short", "secondary compact", () => {}); blocked.disabled = true;
+      mixPlanDetails.replaceChildren(heading, list, summary, blocked);
+      mixStatus.textContent = "This mix can be inspected but cannot be rendered until its estimated duration is strictly greater than 62:00.";
+      return;
+    }
     const data = await apiJson(`/api/mixes/${encodeURIComponent(currentMixId)}/plan`, { method: "POST" });
     approvedMixPlan = data.plan;
     const heading = document.createElement("h3"); heading.textContent = "Approved mix plan";

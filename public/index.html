@@ -131,11 +131,16 @@
       <label for="mix-crossfade">Crossfade seconds (0–20)</label>
       <input id="mix-crossfade" type="number" min="0" max="20" step="0.25" value="8">
       <div class="mix-add-row">
-        <label for="mix-track-select">Add Track Library recording</label>
-        <select id="mix-track-select"><option value="">Choose a recording</option></select>
-        <button id="mix-add-track" type="button" class="secondary compact">Add track</button>
+        <div class="library-heading-row">
+          <strong>Available recordings</strong>
+          <button id="mix-add-accepted" type="button" class="secondary compact">Add All Accepted</button>
+        </div>
+        <label for="mix-recording-filter">Filter recordings</label>
+        <input id="mix-recording-filter" type="search" placeholder="Search by title or filename">
+        <div id="mix-recording-list" class="mix-recording-list"></div>
       </div>
       <ol id="mix-track-list" class="mix-track-list"></ol>
+      <div id="mix-duration-preview" class="mix-duration-preview" role="status" aria-live="polite">Add recordings to calculate the duration.</div>
       <div class="track-actions">
         <button id="mix-save" type="button" class="secondary">Save draft</button>
         <button id="mix-plan" type="button">Review mix plan</button>

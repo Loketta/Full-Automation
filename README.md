@@ -136,6 +136,28 @@ The **Compilation Video Assembly** section combines an existing completed WAV fr
 
 The visual is looped continuously and aspect-ratio fitted inside 1920 × 1080 without stretching. FFmpeg rebuilds a continuous video timeline from decoded frame counts and a continuous audio timeline from sample counts, then uses the probed WAV duration as the explicit output duration. This avoids cumulative MP4 loop-boundary timestamp drift and does not rely on `-shortest` to decide when a long render ends. Before publication, FFprobe verifies the codecs, resolution, pixel format, audio format, and the audio-stream, video-stream, and container durations against the WAV master. A mismatch reports every actual duration and its difference from the WAV. Approved-plan snapshots detect changed source files; private temporary outputs are removed after failures or interrupted restarts; overlapping renders and silent overwrites are rejected. Completed files are atomically published under ignored `output/compilation-videos/` and shown as download links. WAV masters and visual assets are never modified. This workflow is entirely local and does not call Lyria, generate imagery, or upload to YouTube.
 
+## YouTube connection setup
+
+Milestone 7A identifies and binds the exact YouTube channel authorized through Google. It does not upload, edit, delete, schedule, or publish any video. Future upload work must use the stored verified channel ID and defaults to **Private**.
+
+1. In [Google Cloud Console](https://console.cloud.google.com/), create or select a project and enable **YouTube Data API v3**.
+2. Configure the OAuth consent screen. For an External app in Testing, add the Google account you will use as a test user.
+3. Create an OAuth client with application type **Desktop app**. Google's [installed-app authorization guide](https://developers.google.com/youtube/data/guides/auth/installed-apps) supports loopback IP redirects for Windows, macOS, and Linux desktop clients; do not create a Web, Android, iOS, or Chrome client for this local flow.
+4. Copy the Desktop client ID and client secret into the ignored `.env` file:
+
+```dotenv
+YOUTUBE_OAUTH_CLIENT_ID=your_client_id.apps.googleusercontent.com
+YOUTUBE_OAUTH_CLIENT_SECRET=your_client_secret
+```
+
+The default redirect is `http://127.0.0.1:3000/api/youtube/oauth/callback`. A Desktop client accepts this loopback callback. If `PORT` changes, the application automatically uses that port; alternatively set `YOUTUBE_OAUTH_REDIRECT_URI` to the exact loopback callback and ensure the application is opened on the matching origin. Restart after changing `.env`.
+
+Choose **Connect to YouTube** and complete Google's browser authorization. Following Google's [YouTube scope guidance](https://developers.google.com/youtube/v3/guides/auth/server-side-web-apps#identify-access-scopes), the requested scopes are only `youtube.readonly` for verified channel identity and `youtube.upload` for a later upload milestone. The broader account-management and deletion-capable scopes are not requested. If the account has several personal or Brand Account channels, select the intended identity in Google's own account/channel chooser. The application does not pretend that an arbitrary channel ID can switch authorization. Use **Reconnect or change channel** to repeat Google's chooser and replace the binding only after the new channel is verified.
+
+The interface displays the authorized channel name, ID, handle, thumbnail, and connection status. Refresh authorization is stored in encrypted form at `output/youtube-credentials.enc`; the encryption key is derived from the client secret in `.env`. Access tokens, refresh tokens, and the client secret are never returned to browser JavaScript or written to logs. Disconnect requires confirmation, attempts Google revocation, and removes the local encrypted credential even if Google already revoked it. Expired or revoked access is shown as requiring reconnection.
+
+Limitation: Google states that refresh tokens for External OAuth consent screens left in **Testing** normally expire after seven days because these YouTube scopes are not basic identity scopes. The application detects that failure and asks you to reconnect. Moving an OAuth app to production can require Google's scope-verification process; keep it in Testing with an allowed test user while developing.
+
 ## Test offline
 
 ```powershell
@@ -159,6 +181,8 @@ Most video tests use a mocked process runner. A real offline integration test us
 Mix tests cover saved and reopened drafts, ordering, duration calculations, crossfade validation, stale approvals, path and filename safety, collision handling, failures, interrupted temporary-file cleanup, and download behavior. A separate real offline integration test synthesizes short MP3 inputs, exercises the actual FFmpeg mix pipeline with an isolated test-only minimum-duration override, then uses FFprobe to verify 24-bit PCM, 48 kHz stereo output and the expected crossfaded duration. Production code always enforces a finished duration strictly greater than 60 minutes.
 
 Compilation-video tests cover source discovery, safe paths, probing, plan snapshots, continuous timestamp construction, explicit WAV-duration termination, fixed output specifications, duration diagnostics, concurrency, collisions, validation, cleanup, downloads, and explicit confirmation. A real offline integration test synthesizes a short WAV and an animation short enough to cross at least 40 loop boundaries, renders through the production pipeline with a test-only source-duration override, and verifies the complete 1080p H.264/AAC output using FFprobe. It skips clearly when FFmpeg or FFprobe is unavailable; CI requires both tools. No test calls a paid API.
+
+YouTube connection tests use mocked OAuth clients and YouTube API responses. They cover authorization scopes and state, refresh credentials, revoked access, encrypted local storage, channel identity and replacement, missing configuration, disconnect/revocation, server credential isolation, and the browser connection workflow. They require no Google account and make no YouTube API call.
 
 ## GitHub Actions tests
 
@@ -185,4 +209,4 @@ Implementation checked against Google's official [Lyria 3.5 music generation gui
 
 ## Scope
 
-This application intentionally has no cloud deployment, scheduled generation, GitHub Actions music-generation job, YouTube OAuth/upload, automatic visual generation, or recurring automation. Local audio mix assembly only combines recordings that already exist in the Track Library. GitHub Actions is used only for the offline test suite.
+This application intentionally has no cloud deployment, scheduled generation, GitHub Actions music-generation job, YouTube upload/publishing implementation, automatic visual generation, or recurring automation. YouTube OAuth in Milestone 7A only verifies and stores a channel connection for future work; it cannot upload or modify videos. Local audio mix assembly only combines recordings that already exist in the Track Library. GitHub Actions is used only for the offline test suite.

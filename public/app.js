@@ -64,6 +64,10 @@ const compilationRefresh = document.querySelector("#compilation-refresh");
 const compilationPlanButton = document.querySelector("#compilation-plan");
 const compilationPlanDetails = document.querySelector("#compilation-plan-details");
 const compilationStatus = document.querySelector("#compilation-status");
+const youtubeChannel = document.querySelector("#youtube-channel");
+const youtubeConnect = document.querySelector("#youtube-connect");
+const youtubeDisconnect = document.querySelector("#youtube-disconnect");
+const youtubeStatus = document.querySelector("#youtube-status");
 let projects = [];
 let libraryTracks = [];
 let mixes = [];
@@ -79,6 +83,7 @@ let selectedBatchProjectId = "";
 let selectedBatchTrackIds = [];
 let batchActionsBlocked = false;
 let approvedCompilationPlan;
+let youtubeAuthPoll;
 
 player.volume = Number(volume.value);
 volume.addEventListener("input", () => {
@@ -130,10 +135,18 @@ loadProjects();
 loadProjectPlans();
 loadMixes();
 loadCompilationSources();
+loadYouTubeConnection();
 
 compilationRefresh.addEventListener("click", loadCompilationSources);
 for (const input of [compilationMaster, compilationAsset, compilationTitle]) input.addEventListener("input", invalidateCompilationPlan);
 compilationPlanButton.addEventListener("click", reviewCompilationPlan);
+youtubeConnect.addEventListener("click", connectYouTube);
+youtubeDisconnect.addEventListener("click", disconnectYouTube);
+window.addEventListener("message", (event) => {
+  if (event.origin === window.location.origin && event.data?.type === "youtube-oauth-complete") {
+    clearInterval(youtubeAuthPoll); youtubeAuthPoll = undefined; loadYouTubeConnection();
+  }
+});
 
 async function loadLibrary() {
   libraryStatus.textContent = "Loading tracks…";
@@ -1264,6 +1277,64 @@ async function renderCompilationVideo(event) {
     approvedCompilationPlan = undefined;
     compilationStatus.textContent = "Compilation video validated and published locally.";
   } catch (error) { compilationStatus.textContent = error.message; event.currentTarget.disabled = false; }
+}
+
+async function loadYouTubeConnection() {
+  youtubeStatus.textContent = "Checking YouTube connection…";
+  try {
+    const data = await apiJson("/api/youtube/status");
+    renderYouTubeConnection(data.connection);
+    return data.connection;
+  } catch (error) {
+    youtubeChannel.hidden = true; youtubeDisconnect.hidden = true; youtubeConnect.disabled = false;
+    youtubeStatus.textContent = error.message;
+  }
+}
+
+function renderYouTubeConnection(connection) {
+  youtubeConnect.disabled = !connection.configured;
+  youtubeConnect.textContent = connection.channel ? "Reconnect or change channel" : "Connect to YouTube";
+  youtubeDisconnect.hidden = !connection.channel;
+  youtubeChannel.hidden = !connection.channel;
+  youtubeStatus.textContent = `${connection.message} Default future visibility: ${connection.defaultVisibility}. Uploads are not enabled.`;
+  youtubeChannel.replaceChildren();
+  if (!connection.channel) return;
+  if (connection.channel.thumbnailUrl) {
+    const image = document.createElement("img"); image.src = connection.channel.thumbnailUrl; image.alt = `${connection.channel.name} channel thumbnail`; image.referrerPolicy = "no-referrer"; youtubeChannel.append(image);
+  } else { const placeholder = document.createElement("div"); placeholder.className = "status-badge"; placeholder.textContent = "YouTube"; youtubeChannel.append(placeholder); }
+  const details = document.createElement("div");
+  const name = document.createElement("strong"); name.textContent = connection.channel.name;
+  const id = document.createElement("p"); id.textContent = `Channel ID: ${connection.channel.id}`;
+  details.append(name, id);
+  if (connection.channel.handle) { const handle = document.createElement("p"); handle.textContent = `Handle: ${connection.channel.handle}`; details.append(handle); }
+  const binding = document.createElement("p"); binding.className = "track-meta"; binding.textContent = connection.reconnectRequired ? "Reconnect and verify this channel before future uploads." : "This verified channel is bound for future uploads."; details.append(binding);
+  youtubeChannel.append(details);
+}
+
+async function connectYouTube() {
+  youtubeConnect.disabled = true;
+  youtubeStatus.textContent = "Opening Google's account and YouTube channel authorization…";
+  try {
+    const data = await apiJson("/api/youtube/connect", { method: "POST" });
+    const popup = window.open(data.authorizationUrl, "youtube-oauth", "popup,width=640,height=760");
+    if (!popup) throw new Error("The authorization window was blocked. Allow pop-ups for this local application and try again.");
+    popup.focus();
+    clearInterval(youtubeAuthPoll);
+    youtubeAuthPoll = setInterval(async () => {
+      if (popup.closed) { clearInterval(youtubeAuthPoll); youtubeAuthPoll = undefined; await loadYouTubeConnection(); return; }
+      const connection = await loadYouTubeConnection();
+      if (connection?.connected) { clearInterval(youtubeAuthPoll); youtubeAuthPoll = undefined; popup.close(); }
+    }, 2000);
+    youtubeStatus.textContent = "Complete authorization in the Google window. Choose the intended YouTube channel, then return here.";
+  } catch (error) { youtubeStatus.textContent = error.message; youtubeConnect.disabled = false; }
+}
+
+async function disconnectYouTube() {
+  if (!window.confirm("Disconnect the verified YouTube channel? This removes the local authorization and revokes it with Google where possible. No videos will be changed.")) return;
+  youtubeDisconnect.disabled = true;
+  youtubeStatus.textContent = "Disconnecting YouTube authorization…";
+  try { const data = await apiJson("/api/youtube/disconnect", { method: "POST" }); renderYouTubeConnection(data.connection); }
+  catch (error) { youtubeStatus.textContent = error.message; youtubeDisconnect.disabled = false; }
 }
 
 async function apiJson(url, options) {

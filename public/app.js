@@ -6,7 +6,7 @@ import {
   plannedTrackDraft,
   showPlannedTrackMessage,
 } from "./planned-track-state.js";
-import { buildBatchConfirmation, buildBatchSnapshot, describeBatch } from "./batch-state.js";
+import { batchSelectionUiState, buildBatchConfirmation, buildBatchSnapshot, describeBatch, isBatchEligibleTrack, reconcileBatchSelection, updateBatchSelection } from "./batch-state.js";
 import { buildRegenerationConfirmation, formatProjectProgress, hasSubstantivePromptRevision } from "./regeneration-state.js";
 import { buildVideoConfirmation } from "./video-state.js";
 import { buildMixConfirmation, buildMixTrackViewModels, formatMixDuration, removeMixTrackId } from "./mix-state.js";
@@ -32,6 +32,9 @@ const projectStatus = document.querySelector("#project-status");
 const projectSelect = document.querySelector("#project-select");
 const projectWorkspace = document.querySelector("#project-workspace");
 const trackOverviewGroups = document.querySelector("#track-overview-groups");
+const overviewBatchCount = document.querySelector("#overview-batch-count");
+const overviewGenerateBatchButton = document.querySelector("#overview-generate-batch");
+const overviewClearBatchButton = document.querySelector("#overview-clear-batch");
 const projectName = document.querySelector("#project-name");
 const projectTheme = document.querySelector("#project-theme");
 const projectCreated = document.querySelector("#project-created");
@@ -59,6 +62,9 @@ let currentMixId = "";
 let approvedMixPlan;
 let activeBatchId;
 let batchPollTimer;
+let selectedBatchProjectId = "";
+let selectedBatchTrackIds = [];
+let batchActionsBlocked = false;
 
 player.volume = Number(volume.value);
 volume.addEventListener("input", () => {
@@ -377,9 +383,14 @@ importProjectForm.addEventListener("submit", async (event) => {
   }
 });
 
-projectSelect.addEventListener("change", () => renderSelectedProject(projectSelect.value));
+projectSelect.addEventListener("change", async () => {
+  renderSelectedProject(projectSelect.value);
+  await loadLatestBatch(projectSelect.value);
+});
 
 generateBatchButton.addEventListener("click", startBatch);
+overviewGenerateBatchButton.addEventListener("click", startBatch);
+overviewClearBatchButton.addEventListener("click", () => { selectedBatchTrackIds = []; syncBatchSelectionUi(); });
 stopBatchButton.addEventListener("click", stopBatch);
 mixSelect.addEventListener("change", () => selectMixDraft(mixSelect.value));
 document.querySelector("#mix-add-track").addEventListener("click", () => {
@@ -552,7 +563,13 @@ async function loadProjects(selectedId = projectSelect.value) {
 function renderSelectedProject(id) {
   const project = projects.find((candidate) => candidate.id === id);
   projectWorkspace.hidden = !project;
-  if (!project) { trackOverviewGroups.replaceChildren(); return; }
+  if (!project) {
+    selectedBatchProjectId = ""; selectedBatchTrackIds = [];
+    trackOverviewGroups.replaceChildren(); syncBatchSelectionUi(); return;
+  }
+  if (selectedBatchProjectId !== project.id) selectedBatchTrackIds = [];
+  selectedBatchProjectId = project.id;
+  selectedBatchTrackIds = reconcileBatchSelection(project, selectedBatchTrackIds);
   projectName.value = project.name;
   projectTheme.value = project.theme;
   projectCreated.textContent = `Created ${new Date(project.createdAt).toLocaleString()}`;
@@ -565,6 +582,7 @@ function renderSelectedProject(id) {
     plannedTrackList.append(empty);
   }
   renderTrackOverview(project);
+  syncBatchSelectionUi();
 }
 
 function renderTrackOverview(project) {
@@ -577,7 +595,14 @@ function renderTrackOverview(project) {
     } else {
       const list = document.createElement("ul");
       for (const track of group.tracks) {
-        const item = document.createElement("li");
+        const item = document.createElement("li"); item.className = "track-overview-track";
+        if (group.key === "notGenerated" && isBatchEligibleTrack(track)) {
+          const checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkbox.className = "track-overview-selector batch-selection-checkbox";
+          checkbox.dataset.batchTrackId = track.id; checkbox.checked = selectedBatchTrackIds.includes(track.id);
+          checkbox.setAttribute("aria-label", `Select ${track.title} for batch generation`);
+          checkbox.addEventListener("change", () => handleBatchSelectionChange(track.id, checkbox.checked));
+          item.append(checkbox);
+        }
         const link = document.createElement("button"); link.type = "button"; link.className = "track-overview-link"; link.textContent = track.title;
         link.setAttribute("aria-label", `Focus track editor for ${track.title}`);
         link.addEventListener("click", () => focusPlannedTrack(track.id));
@@ -617,16 +642,12 @@ function createPlannedTrackCard(project, track, index) {
     selector.className = "batch-selector";
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
-    checkbox.className = "batch-track-selector";
+    checkbox.className = "batch-track-selector batch-selection-checkbox";
     checkbox.value = track.id;
+    checkbox.dataset.batchTrackId = track.id;
+    checkbox.checked = selectedBatchTrackIds.includes(track.id);
     checkbox.setAttribute("aria-label", `Include ${track.title} in batch`);
-    checkbox.addEventListener("change", () => {
-      const count = document.querySelectorAll(".batch-track-selector:checked").length;
-      if (count > 5) {
-        checkbox.checked = false;
-        batchStatus.textContent = "A batch can authorise at most five paid requests.";
-      }
-    });
+    checkbox.addEventListener("change", () => handleBatchSelectionChange(track.id, checkbox.checked));
     selector.append(checkbox, document.createTextNode("Select for batch"));
     card.append(selector);
   }
@@ -801,7 +822,7 @@ function createProjectRecording(project, track, cardMessage) {
 async function startBatch() {
   const project = projects.find((candidate) => candidate.id === projectSelect.value);
   if (!project) return;
-  const selectedIds = [...document.querySelectorAll(".batch-track-selector:checked")].map((element) => element.value);
+  const selectedIds = reconcileBatchSelection(project, selectedBatchTrackIds);
   if (selectedIds.length < 1 || selectedIds.length > 5) {
     batchStatus.textContent = "Select between 1 and 5 pending tracks.";
     return;
@@ -824,7 +845,7 @@ async function startBatch() {
     batchStatus.textContent = "Batch cancelled. No API request was made.";
     return;
   }
-  generateBatchButton.disabled = true;
+  setBatchActionsBlocked(true);
   batchStatus.textContent = "Authorising the saved batch snapshot…";
   try {
     const data = await apiJson(`/api/projects/${encodeURIComponent(project.id)}/batches`, {
@@ -837,7 +858,7 @@ async function startBatch() {
     scheduleBatchPoll();
   } catch (error) {
     batchStatus.textContent = error.message;
-    generateBatchButton.disabled = false;
+    setBatchActionsBlocked(false);
   }
 }
 
@@ -861,7 +882,7 @@ async function loadLatestBatch(projectId) {
   batchCompleted.replaceChildren();
   batchStatus.textContent = "";
   stopBatchButton.hidden = true;
-  generateBatchButton.disabled = false;
+  setBatchActionsBlocked(Boolean(projectId));
   if (!projectId) return;
   try {
     const data = await apiJson("/api/batches");
@@ -869,11 +890,18 @@ async function loadLatestBatch(projectId) {
       renderBatchSafety(data.safety);
       return;
     }
+    const active = data.batches.find((candidate) => ["approved", "running", "stopping"].includes(candidate.status));
+    if (active) {
+      renderBatch(active);
+      if (active.projectId !== projectId) batchStatus.textContent = `A batch is active in another project. ${describeBatch(active)}`;
+      scheduleBatchPoll();
+      return;
+    }
     const batch = data.batches.find((candidate) => candidate.projectId === projectId);
-    if (!batch) return;
+    if (!batch) { setBatchActionsBlocked(false); return; }
     renderBatch(batch);
-    if (["approved", "running", "stopping"].includes(batch.status)) scheduleBatchPoll();
   } catch (error) {
+    setBatchActionsBlocked(true);
     batchStatus.textContent = error.message;
   }
 }
@@ -908,7 +936,7 @@ function renderBatch(batch) {
     item.textContent = `${track.title} — ${track.filename}`;
     return item;
   }));
-  generateBatchButton.disabled = active;
+  setBatchActionsBlocked(active);
   stopBatchButton.hidden = !active;
   stopBatchButton.disabled = batch.status === "stopping";
 }
@@ -916,9 +944,35 @@ function renderBatch(batch) {
 function renderBatchSafety(safety) {
   activeBatchId = undefined;
   clearTimeout(batchPollTimer);
-  generateBatchButton.disabled = true;
+  setBatchActionsBlocked(true);
   stopBatchButton.hidden = true;
   batchStatus.textContent = safety.message;
+}
+
+function handleBatchSelectionChange(trackId, checked) {
+  const project = projects.find((candidate) => candidate.id === projectSelect.value);
+  const update = updateBatchSelection(project, selectedBatchTrackIds, trackId, checked);
+  selectedBatchTrackIds = update.selectedIds;
+  if (update.limitExceeded) batchStatus.textContent = "A batch can authorise at most five paid requests.";
+  syncBatchSelectionUi();
+}
+
+function syncBatchSelectionUi() {
+  const selected = new Set(selectedBatchTrackIds);
+  const state = batchSelectionUiState(selected.size, batchActionsBlocked);
+  for (const checkbox of document.querySelectorAll(".batch-selection-checkbox")) {
+    checkbox.checked = selected.has(checkbox.dataset.batchTrackId);
+    checkbox.disabled = state.checkboxesDisabled;
+  }
+  overviewBatchCount.textContent = `${selected.size} / 5 selected`;
+  generateBatchButton.disabled = state.generateDisabled;
+  overviewGenerateBatchButton.disabled = state.generateDisabled;
+  overviewClearBatchButton.disabled = state.clearDisabled;
+}
+
+function setBatchActionsBlocked(blocked) {
+  batchActionsBlocked = blocked;
+  syncBatchSelectionUi();
 }
 
 function field(labelText, value, kind, maxLength) {

@@ -42,13 +42,18 @@ audio, input[type="range"] { width: 100%; }
 #project-editor { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #343b56; }
 .project-workspace { display: grid; grid-template-columns: minmax(0, 1.85fr) minmax(250px, 1fr); gap: 1rem; align-items: start; }
 .project-workspace[hidden] { display: none; }
-.track-overview { position: sticky; top: 1rem; margin-top: 1rem; padding: 1rem; border-radius: 12px; background: #0d101a; }
+.track-overview { position: sticky; top: 1rem; max-height: calc(100vh - 2rem); display: flex; flex-direction: column; margin-top: 1rem; padding: 1rem; border-radius: 12px; background: #0d101a; }
 .track-overview > h3 { margin-top: 0; }
+.track-overview-scroll { min-height: 0; overflow-y: auto; padding-right: .25rem; }
 .track-overview-group { margin-top: .75rem; padding: .7rem; border: 0; border-radius: 9px; background: #141827; }
 .track-overview-group h4 { margin: 0 0 .4rem; color: #8ef4d2; }
 .track-overview-group ul { margin: 0; padding-left: 1.1rem; }
 .track-overview-link { padding: .2rem 0; border-radius: 0; background: transparent; color: #edf2ff; font-weight: 650; text-align: left; text-decoration: underline; }
+.track-overview-track { display: flex; gap: .45rem; align-items: center; }
+.track-overview-selector { width: 1rem; height: 1rem; flex: 0 0 1rem; margin: 0; }
 .track-overview-empty { margin: 0; color: #8993ad; font-size: .9rem; }
+.track-overview-batch-footer { flex: 0 0 auto; margin-top: .8rem; padding-top: .8rem; border-top: 1px solid #3d4664; background: #0d101a; }
+.track-overview-batch-footer .track-actions { margin-top: .55rem; }
 .planned-card:focus { outline: 3px solid #8ef4d2; outline-offset: 3px; }
 .project-editor-actions { display: flex; gap: .75rem; flex-wrap: wrap; margin-bottom: 1rem; }
 .planned-track-list { display: grid; gap: 1rem; }
@@ -96,5 +101,5 @@ select { display: block; margin-top: .45rem; padding: .55rem .7rem; border: 1px 
 .mix-track-item audio { margin-top: .5rem; }
 .mix-plan-details { margin-top: 1rem; color: #bbc4dc; overflow-wrap: anywhere; }
 @media (min-width: 900px) { .projects-section { width: min(1120px, calc(100vw - 3rem)); margin-left: 50%; transform: translateX(-50%); } }
-@media (max-width: 760px) { .project-workspace { grid-template-columns: 1fr; } .track-overview { position: static; } }
+@media (max-width: 760px) { .project-workspace { grid-template-columns: 1fr; } .track-overview { position: static; max-height: none; } .track-overview-scroll { max-height: 55vh; } }
 @media (max-width: 540px) { .title-row { align-items: stretch; flex-direction: column; } .library-heading-row { align-items: flex-start; } }

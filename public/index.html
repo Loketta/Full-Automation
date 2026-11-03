@@ -108,7 +108,14 @@
       <aside id="track-overview" class="track-overview" aria-labelledby="track-overview-heading">
         <h3 id="track-overview-heading">Track Overview</h3>
         <p class="track-meta">Titles grouped by current generation and review status.</p>
-        <div id="track-overview-groups"></div>
+        <div id="track-overview-groups" class="track-overview-scroll"></div>
+        <footer class="track-overview-batch-footer" aria-label="Track Overview batch controls">
+          <strong id="overview-batch-count" aria-live="polite">0 / 5 selected</strong>
+          <div class="track-actions">
+            <button id="overview-generate-batch" type="button">Generate Batch</button>
+            <button id="overview-clear-batch" class="secondary compact" type="button">Clear Selection</button>
+          </div>
+        </footer>
       </aside>
       </div>
     </section>

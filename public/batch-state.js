@@ -8,6 +8,26 @@ export function buildBatchSnapshot(project, selectedIds) {
   };
 }
 
+export function reconcileBatchSelection(project, selectedIds) {
+  const selected = new Set(selectedIds);
+  return (project?.tracks ?? []).filter((track) => isBatchEligibleTrack(track) && selected.has(track.id)).map((track) => track.id);
+}
+
+export function updateBatchSelection(project, selectedIds, trackId, checked, maximum = 5) {
+  const eligible = new Set((project?.tracks ?? []).filter(isBatchEligibleTrack).map((track) => track.id));
+  const selected = new Set(reconcileBatchSelection(project, selectedIds));
+  if (!eligible.has(trackId)) return { selectedIds: [...selected], limitExceeded: false };
+  if (checked && !selected.has(trackId) && selected.size >= maximum) return { selectedIds: reconcileBatchSelection(project, selected), limitExceeded: true };
+  if (checked) selected.add(trackId); else selected.delete(trackId);
+  return { selectedIds: reconcileBatchSelection(project, selected), limitExceeded: false };
+}
+
+export function isBatchEligibleTrack(track) { return track?.status === "Pending"; }
+
+export function batchSelectionUiState(selectedCount, blocked) {
+  return { generateDisabled: blocked || selectedCount === 0, clearDisabled: blocked || selectedCount === 0, checkboxesDisabled: blocked };
+}
+
 export function buildBatchConfirmation(projectName, tracks) {
   const count = tracks.length;
   const titles = tracks.map((track, index) => `${index + 1}. ${track.title}`).join("\n");

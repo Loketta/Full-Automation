@@ -212,7 +212,7 @@ export class SpawnProcessRunner {
 export async function probeMedia(runner, executable, filePath) {
   const result = await runner.capture(executable, [
     "-v", "error",
-    "-show_entries", "format=format_name,duration:stream=codec_type,codec_name,width,height,duration,sample_rate,channels",
+    "-show_entries", "format=format_name,duration:stream=codec_type,codec_name,width,height,pix_fmt,duration,sample_rate,channels",
     "-of", "json",
     filePath,
   ]);
@@ -226,6 +226,7 @@ export async function probeMedia(runner, executable, filePath) {
         codecName: stream.codec_name,
         width: Number(stream.width) || undefined,
         height: Number(stream.height) || undefined,
+        pixelFormat: stream.pix_fmt,
         duration: numericDuration(stream.duration),
         sampleRate: Number(stream.sample_rate) || undefined,
         channels: Number(stream.channels) || undefined,

@@ -10,6 +10,7 @@ import { recoverReplacementTransactions } from "./regeneration.js";
 import { VideoAssemblyService } from "./video.js";
 import { MixAssemblyService, MixStore } from "./mixes.js";
 import { ProjectPlanService } from "./project-plans.js";
+import { CompilationVideoService } from "./compilation-video.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const port = Number.parseInt(process.env.PORT ?? "3000", 10);
@@ -41,6 +42,12 @@ try {
   });
   const mixStatus = await mixService.initialize();
   if (!mixStatus.available) console.warn(mixStatus.error);
+  const compilationVideoService = new CompilationVideoService(outputDirectory, {
+    ffmpeg: process.env.FFMPEG_PATH || "ffmpeg",
+    ffprobe: process.env.FFPROBE_PATH || "ffprobe",
+  });
+  const compilationVideoStatus = await compilationVideoService.initialize();
+  if (!compilationVideoStatus.available) console.warn(compilationVideoStatus.error);
   const app = createApp({
     client,
     library,
@@ -50,6 +57,7 @@ try {
     videoService,
     mixStore,
     mixService,
+    compilationVideoService,
     startupGenerationBlock: replacementRecovery.pending ? {
       blocked: true,
       outcomeUncertain: true,

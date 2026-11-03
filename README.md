@@ -130,6 +130,12 @@ After explicit confirmation, FFmpeg renders sequentially with equal-power crossf
 
 Audio mixing uses the same `FFMPEG_PATH` and `FFPROBE_PATH` settings described above. Missing recordings, invalid media, crossfades that are too long, stale plans, failed renders, and failed validation are reported without modifying the original MP3s. No mix action calls Lyria, generates music, or uploads media.
 
+### Full-length compilation videos
+
+The **Compilation Video Assembly** section combines an existing completed WAV from `output/mixes/` with an MP4 loop from `output/visual-assets/`. Choose both files, enter a title, and select **Review assembly plan**. The plan reports both source durations, the expected output duration, fixed 1920 × 1080 H.264/yuv420p video, AAC 320 kbps 48 kHz stereo audio, and the collision-safe destination filename. Rendering starts only after a separate explicit confirmation.
+
+The visual is looped continuously and aspect-ratio fitted inside 1920 × 1080 without stretching. FFmpeg stops at the end of the complete WAV. Before publication, FFprobe verifies the codecs, resolution, pixel format, audio format, and duration against the WAV master. Approved-plan snapshots detect changed source files; private temporary outputs are removed after failures or interrupted restarts; overlapping renders and silent overwrites are rejected. Completed files are atomically published under ignored `output/compilation-videos/` and shown as download links. WAV masters and visual assets are never modified. This workflow is entirely local and does not call Lyria, generate imagery, or upload to YouTube.
+
 ## Test offline
 
 ```powershell
@@ -151,6 +157,8 @@ Review and regeneration tests cover shared status persistence, progress counts, 
 Most video tests use a mocked process runner. A real offline integration test uses FFmpeg to synthesize a shorter animation and longer audio, runs the production assembly pipeline, and uses FFprobe to verify looping, H.264/AAC streams, dimensions, and complete-audio duration. It skips with an explicit reason when either tool is unavailable locally; GitHub Actions installs both tools and requires the test to run. Tests never generate music or make paid requests.
 
 Mix tests cover saved and reopened drafts, ordering, duration calculations, crossfade validation, stale approvals, path and filename safety, collision handling, failures, interrupted temporary-file cleanup, and download behavior. A separate real offline integration test synthesizes short MP3 inputs, exercises the actual FFmpeg mix pipeline with an isolated test-only minimum-duration override, then uses FFprobe to verify 24-bit PCM, 48 kHz stereo output and the expected crossfaded duration. Production code always enforces a finished duration strictly greater than 60 minutes.
+
+Compilation-video tests cover source discovery, safe paths, probing, plan snapshots, looping arguments, fixed output specifications, concurrency, collisions, validation, cleanup, downloads, and explicit confirmation. A real offline integration test synthesizes a short WAV and an even shorter animation, renders through the production pipeline with a test-only source-duration override, and verifies the 1080p H.264/AAC output using FFprobe. It skips clearly when FFmpeg or FFprobe is unavailable; CI requires both tools. No test calls a paid API.
 
 ## GitHub Actions tests
 

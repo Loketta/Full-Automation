@@ -1157,7 +1157,7 @@ async function reviewMixPlan() {
       const summary = document.createElement("p"); summary.textContent = describeMixDuration(preview);
       const blocked = actionButton("Render unavailable — mix is too short", "secondary compact", () => {}); blocked.disabled = true;
       mixPlanDetails.replaceChildren(heading, list, summary, blocked);
-      mixStatus.textContent = "This mix can be inspected but cannot be rendered until its estimated duration is strictly greater than 62:00.";
+      mixStatus.textContent = "This mix can be inspected but cannot be rendered until its estimated duration is strictly greater than 60:00. Aim for about 62 minutes of source material to leave room for crossfades.";
       return;
     }
     const data = await apiJson(`/api/mixes/${encodeURIComponent(currentMixId)}/plan`, { method: "POST" });

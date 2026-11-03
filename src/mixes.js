@@ -5,7 +5,7 @@ import { copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 
 import { probeMedia, SpawnProcessRunner } from "./video.js";
 
 export const MIXES_DIRECTORY = "mixes";
-export const MINIMUM_MIX_DURATION_SECONDS = 3720;
+export const MINIMUM_MIX_DURATION_SECONDS = 3600;
 export const DEFAULT_CROSSFADE_SECONDS = 8;
 const MIXES_FILENAME = "mixes.json";
 
@@ -286,7 +286,7 @@ export function validateMixOutput(media, plannedDuration, minimumDuration, toler
   if (audio?.codecName !== "pcm_s24le") throw new MixRenderError("Rendered master is not 24-bit PCM audio.");
   if (audio.sampleRate !== 48000 || audio.channels !== 2) throw new MixRenderError("Rendered master must be 48,000 Hz stereo.");
   if (!Number.isFinite(duration) || Math.abs(duration - plannedDuration) > tolerance) throw new MixRenderError("Rendered master duration does not match the approved plan.");
-  if (!(duration > minimumDuration)) throw new MixRenderError("Rendered master does not exceed the minimum duration.");
+  if (!(duration > minimumDuration)) throw new MixRenderError(`Rendered master must be strictly longer than ${formatDuration(minimumDuration)}.`);
   return duration;
 }
 

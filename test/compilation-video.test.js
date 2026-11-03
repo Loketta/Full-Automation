@@ -1,0 +1,109 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import path from "node:path";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  buildCompilationFfmpegArgs, CompilationConflictError, CompilationVideoService, validateCompilationOutput,
+} from "../src/compilation-video.js";
+
+async function fixture(t, overrides = {}) {
+  const root = await mkdtemp(path.join(process.cwd(), ".test-tmp-compilation-video-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const output = path.join(root, "output");
+  const runner = overrides.runner ?? { async check() {}, async run(_exe, args) { await writeFile(args.at(-1), "complete mp4"); } };
+  const probe = overrides.probe ?? (async (filePath) => filePath.endsWith("master.wav")
+    ? { formatName: "wav", duration: 3700.25, streams: [{ codecType: "audio", codecName: "pcm_s24le", sampleRate: 48000, channels: 2, duration: 3700.25 }] }
+    : filePath.includes("visual-assets")
+      ? { formatName: "mp4", duration: 12, streams: [{ codecType: "video", codecName: "h264", width: 1672, height: 942, pixelFormat: "yuv420p", duration: 12 }] }
+      : { formatName: "mov,mp4", duration: 3700.3, streams: [
+        { codecType: "video", codecName: "h264", width: 1920, height: 1080, pixelFormat: "yuv420p", duration: 3700.3 },
+        { codecType: "audio", codecName: "aac", sampleRate: 48000, channels: 2, duration: 3700.3 },
+      ] });
+  const service = new CompilationVideoService(output, { runner, probe, randomUUID: () => "job", ...overrides });
+  await service.initialize();
+  await writeFile(path.join(output, "mixes", "master.wav"), "original wav");
+  await writeFile(path.join(output, "visual-assets", "harbour.mp4"), "original visual");
+  return { output, service, runner };
+}
+
+test("builds a fixed YouTube-ready loop command with complete WAV mapping", () => {
+  const args = buildCompilationFfmpegArgs({ audioPath: "master.wav", assetPath: "loop.mp4", outputPath: "out.mp4" });
+  assert.deepEqual(args.slice(0, 8), ["-hide_banner", "-n", "-stream_loop", "-1", "-i", "loop.mp4", "-i", "master.wav"]);
+  assert.equal(args[args.indexOf("-vf") + 1], "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1");
+  assert.equal(args[args.indexOf("-pix_fmt") + 1], "yuv420p");
+  assert.equal(args[args.indexOf("-b:a") + 1], "320k");
+  assert.equal(args[args.indexOf("-ar") + 1], "48000");
+  assert.ok(args.includes("-shortest"));
+});
+
+test("lists designated inputs, plans with durations, rejects stale snapshots, and preserves sources", async (t) => {
+  const values = await fixture(t);
+  const sources = await values.service.listSources();
+  assert.deepEqual(sources.masters.map((item) => item.filename), ["master.wav"]);
+  assert.deepEqual(sources.assets.map((item) => item.filename), ["harbour.mp4"]);
+  const plan = await values.service.plan({ masterFilename: "master.wav", assetFilename: "harbour.mp4", title: "Industrial Afterhours" });
+  assert.equal(plan.expectedDuration, 3700.25);
+  assert.equal(plan.outputFilename, "industrial-afterhours.mp4");
+  await assert.rejects(() => values.service.render({ masterFilename: "master.wav", assetFilename: "harbour.mp4", outputFilename: plan.outputFilename, snapshot: "stale" }), CompilationConflictError);
+  const rendered = await values.service.render({ masterFilename: "master.wav", assetFilename: "harbour.mp4", outputFilename: plan.outputFilename, snapshot: plan.snapshot });
+  assert.equal(rendered.downloadUrl, "/compilation-videos/industrial-afterhours.mp4");
+  assert.equal(await readFile(path.join(values.output, "mixes", "master.wav"), "utf8"), "original wav");
+  assert.equal(await readFile(path.join(values.output, "visual-assets", "harbour.mp4"), "utf8"), "original visual");
+  const next = await values.service.plan({ masterFilename: "master.wav", assetFilename: "harbour.mp4", title: "Industrial Afterhours" });
+  assert.equal(next.outputFilename, "industrial-afterhours-2.mp4");
+});
+
+test("changing either approved source invalidates its snapshot before FFmpeg starts", async (t) => {
+  let calls = 0;
+  const values = await fixture(t, { runner: { async check() {}, async run() { calls += 1; } } });
+  const plan = await values.service.plan({ masterFilename: "master.wav", assetFilename: "harbour.mp4", title: "Snapshot" });
+  await writeFile(path.join(values.output, "visual-assets", "harbour.mp4"), "changed visual content");
+  await assert.rejects(() => values.service.render({ masterFilename: "master.wav", assetFilename: "harbour.mp4", outputFilename: plan.outputFilename, snapshot: plan.snapshot }), /changed/);
+  assert.equal(calls, 0);
+});
+
+test("rejects traversal, missing and invalid media", async (t) => {
+  const values = await fixture(t);
+  await assert.rejects(() => values.service.plan({ masterFilename: "../master.wav", assetFilename: "harbour.mp4" }), /Invalid WAV/);
+  await assert.rejects(() => values.service.plan({ masterFilename: "missing.wav", assetFilename: "harbour.mp4" }), /missing or invalid/);
+  const invalid = await fixture(t, { probe: async () => ({ formatName: "wav", duration: 3701, streams: [] }) });
+  await assert.rejects(() => invalid.service.plan({ masterFilename: "master.wav", assetFilename: "harbour.mp4" }), /completed WAV master/);
+});
+
+test("validates exact output streams, dimensions, pixel format, and full duration", () => {
+  const valid = { formatName: "mov,mp4", duration: 3700.4, streams: [
+    { codecType: "video", codecName: "h264", width: 1920, height: 1080, pixelFormat: "yuv420p" },
+    { codecType: "audio", codecName: "aac", sampleRate: 48000, channels: 2, duration: 3700.4 },
+  ] };
+  assert.equal(validateCompilationOutput(valid, 3700.25).duration, 3700.4);
+  assert.throws(() => validateCompilationOutput({ ...valid, streams: [{ ...valid.streams[0], width: 1280 }, valid.streams[1]] }, 3700.25), /1920 × 1080/);
+  assert.throws(() => validateCompilationOutput({ ...valid, streams: [valid.streams[0], { ...valid.streams[1], sampleRate: 44100 }] }, 3700.25), /48 kHz stereo/);
+  assert.throws(() => validateCompilationOutput({ ...valid, duration: 3690, streams: [valid.streams[0], { ...valid.streams[1], duration: 3690 }] }, 3700.25), /complete WAV/);
+});
+
+test("blocks overlap and cleans temporary output after FFmpeg failure", async (t) => {
+  let release; const hold = new Promise((resolve) => { release = resolve; });
+  const values = await fixture(t, { runner: { async check() {}, async run(_exe, args) { await writeFile(args.at(-1), "partial"); await hold; throw new Error("mock failure"); } } });
+  const plan = await values.service.plan({ masterFilename: "master.wav", assetFilename: "harbour.mp4", title: "Failure" });
+  const first = values.service.render({ masterFilename: "master.wav", assetFilename: "harbour.mp4", outputFilename: plan.outputFilename, snapshot: plan.snapshot });
+  await assert.rejects(() => values.service.render({ masterFilename: "master.wav", assetFilename: "harbour.mp4", outputFilename: "other.mp4", snapshot: plan.snapshot }), /already rendering/);
+  release(); await assert.rejects(() => first, /mock failure/);
+  assert.deepEqual((await readdir(path.join(values.output, "compilation-videos"))).filter((name) => name.startsWith(".rendering-")), []);
+});
+
+test("failed output validation and restart cleanup remove only private incomplete files", async (t) => {
+  const values = await fixture(t, { probe: async (filePath) => filePath.endsWith("master.wav")
+    ? { formatName: "wav", duration: 3701, streams: [{ codecType: "audio", codecName: "pcm_s24le", sampleRate: 48000, channels: 2, duration: 3701 }] }
+    : filePath.includes("visual-assets")
+      ? { formatName: "mp4", duration: 12, streams: [{ codecType: "video", width: 320, height: 180, duration: 12 }] }
+      : { formatName: "mp4", duration: 3701, streams: [{ codecType: "video", codecName: "h264", width: 1280, height: 720, pixelFormat: "yuv420p" }] } });
+  const plan = await values.service.plan({ masterFilename: "master.wav", assetFilename: "harbour.mp4", title: "Invalid" });
+  await assert.rejects(() => values.service.render({ masterFilename: "master.wav", assetFilename: "harbour.mp4", outputFilename: plan.outputFilename, snapshot: plan.snapshot }), /1920 × 1080/);
+  assert.deepEqual(await readdir(path.join(values.output, "compilation-videos")), []);
+  await writeFile(path.join(values.output, "compilation-videos", ".rendering-abandoned.mp4"), "partial");
+  await writeFile(path.join(values.output, "compilation-videos", "completed.mp4"), "complete");
+  await values.service.initialize();
+  assert.deepEqual(await readdir(path.join(values.output, "compilation-videos")), ["completed.mp4"]);
+  assert.equal(await readFile(path.join(values.output, "mixes", "master.wav"), "utf8"), "original wav");
+  assert.equal(await readFile(path.join(values.output, "visual-assets", "harbour.mp4"), "utf8"), "original visual");
+});

@@ -12,6 +12,7 @@ import { buildVideoConfirmation } from "./video-state.js";
 import { addAcceptedProjectRecordings, addRecordingToMix, buildMixConfirmation, buildMixTrackViewModels, describeMixDuration, formatMixDuration, removeMixTrackId } from "./mix-state.js";
 import { buildProjectTrackOverview, focusPlannedTrack } from "./project-overview.js";
 import { buildAppendConfirmation } from "./project-plan-state.js";
+import { buildCompilationVideoConfirmation, formatCompilationDuration } from "./compilation-video-state.js";
 
 const form = document.querySelector("#generate-form");
 const prompt = document.querySelector("#prompt");
@@ -56,6 +57,13 @@ const mixTrackList = document.querySelector("#mix-track-list");
 const mixDurationPreview = document.querySelector("#mix-duration-preview");
 const mixStatus = document.querySelector("#mix-status");
 const mixPlanDetails = document.querySelector("#mix-plan-details");
+const compilationMaster = document.querySelector("#compilation-master");
+const compilationAsset = document.querySelector("#compilation-asset");
+const compilationTitle = document.querySelector("#compilation-title");
+const compilationRefresh = document.querySelector("#compilation-refresh");
+const compilationPlanButton = document.querySelector("#compilation-plan");
+const compilationPlanDetails = document.querySelector("#compilation-plan-details");
+const compilationStatus = document.querySelector("#compilation-status");
 let projects = [];
 let libraryTracks = [];
 let mixes = [];
@@ -70,6 +78,7 @@ let batchPollTimer;
 let selectedBatchProjectId = "";
 let selectedBatchTrackIds = [];
 let batchActionsBlocked = false;
+let approvedCompilationPlan;
 
 player.volume = Number(volume.value);
 volume.addEventListener("input", () => {
@@ -120,6 +129,11 @@ loadLibrary();
 loadProjects();
 loadProjectPlans();
 loadMixes();
+loadCompilationSources();
+
+compilationRefresh.addEventListener("click", loadCompilationSources);
+for (const input of [compilationMaster, compilationAsset, compilationTitle]) input.addEventListener("input", invalidateCompilationPlan);
+compilationPlanButton.addEventListener("click", reviewCompilationPlan);
 
 async function loadLibrary() {
   libraryStatus.textContent = "Loading tracks…";
@@ -1189,6 +1203,67 @@ async function renderApprovedMix(event) {
     mixPlanDetails.replaceChildren(link); mixStatus.textContent = "WAV master validated, saved, and ready to download.";
   } catch (error) { mixStatus.textContent = error.message; }
   finally { controls.forEach((control) => { control.disabled = false; }); }
+}
+
+async function loadCompilationSources() {
+  compilationStatus.textContent = "Loading completed WAV masters and visual assets…";
+  invalidateCompilationPlan();
+  try {
+    const data = await apiJson("/api/compilation-videos/sources");
+    const selectedMaster = compilationMaster.value; const selectedAsset = compilationAsset.value;
+    compilationMaster.replaceChildren(new Option("Choose a WAV master", ""), ...data.masters.map((item) => new Option(item.filename, item.filename)));
+    compilationAsset.replaceChildren(new Option("Choose a visual asset", ""), ...data.assets.map((item) => new Option(item.filename, item.filename)));
+    if (data.masters.some((item) => item.filename === selectedMaster)) compilationMaster.value = selectedMaster;
+    if (data.assets.some((item) => item.filename === selectedAsset)) compilationAsset.value = selectedAsset;
+    if (!data.status.available) throw new Error(data.status.error || "FFmpeg/FFprobe is unavailable.");
+    compilationStatus.textContent = `${data.masters.length} WAV master(s) and ${data.assets.length} visual asset(s) available.`;
+  } catch (error) { compilationStatus.textContent = error.message; }
+}
+
+function invalidateCompilationPlan() {
+  approvedCompilationPlan = undefined;
+  compilationPlanDetails.replaceChildren();
+}
+
+async function reviewCompilationPlan() {
+  invalidateCompilationPlan();
+  compilationPlanButton.disabled = true;
+  compilationStatus.textContent = "Inspecting the selected WAV and visual with FFprobe…";
+  try {
+    const data = await apiJson("/api/compilation-videos/plan", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ masterFilename: compilationMaster.value, assetFilename: compilationAsset.value, title: compilationTitle.value }),
+    });
+    approvedCompilationPlan = data.plan;
+    const plan = data.plan;
+    const summary = document.createElement("p");
+    summary.textContent = `WAV: ${plan.master.filename} (${formatCompilationDuration(plan.master.duration)}) · Visual: ${plan.asset.filename} (${formatCompilationDuration(plan.asset.duration)} per loop) · Expected: ${formatCompilationDuration(plan.expectedDuration)} · H.264/AAC, 1920 × 1080, yuv420p, 48 kHz stereo · Destination: ${plan.outputFilename}`;
+    const render = document.createElement("button"); render.type = "button"; render.textContent = "Render full-length MP4";
+    render.addEventListener("click", renderCompilationVideo);
+    compilationPlanDetails.replaceChildren(summary, render);
+    compilationStatus.textContent = "Review the complete plan, then explicitly confirm the local FFmpeg render.";
+  } catch (error) { compilationStatus.textContent = error.message; }
+  finally { compilationPlanButton.disabled = false; }
+}
+
+async function renderCompilationVideo(event) {
+  const plan = approvedCompilationPlan;
+  if (!plan || !window.confirm(buildCompilationVideoConfirmation(plan))) {
+    compilationStatus.textContent = "Compilation render cancelled. FFmpeg was not started.";
+    return;
+  }
+  event.currentTarget.disabled = true;
+  compilationStatus.textContent = "Rendering the full-length MP4 locally. The source WAV and visual remain unchanged…";
+  try {
+    const data = await apiJson("/api/compilation-videos/render", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ masterFilename: plan.master.filename, assetFilename: plan.asset.filename, outputFilename: plan.outputFilename, snapshot: plan.snapshot }),
+    });
+    const link = document.createElement("a"); link.className = "download"; link.href = data.video.downloadUrl; link.download = data.video.filename; link.textContent = `Download ${data.video.filename}`;
+    compilationPlanDetails.append(link);
+    approvedCompilationPlan = undefined;
+    compilationStatus.textContent = "Compilation video validated and published locally.";
+  } catch (error) { compilationStatus.textContent = error.message; event.currentTarget.disabled = false; }
 }
 
 async function apiJson(url, options) {

@@ -103,6 +103,11 @@ select { display: block; margin-top: .45rem; padding: .55rem .7rem; border: 1px 
 .mix-track-item.missing p { color: #ffc08f; }
 .mix-track-item audio { margin-top: .5rem; }
 .mix-plan-details { margin-top: 1rem; color: #bbc4dc; overflow-wrap: anywhere; }
+.compilation-video-section { margin-top: 3rem; }
+.compilation-video-section > h2 { font-size: 2rem; margin: .25rem 0; }
+.compilation-video-section select { width: 100%; margin-bottom: 1rem; }
+.compilation-plan-details { margin-top: 1rem; padding: .8rem; border-left: 3px solid #8ef4d2; background: #14211f; color: #dffdf3; overflow-wrap: anywhere; }
+.compilation-plan-details:empty { display: none; }
 @media (min-width: 900px) { .projects-section { width: min(1120px, calc(100vw - 3rem)); margin-left: 50%; transform: translateX(-50%); } }
 @media (max-width: 760px) { .project-workspace { grid-template-columns: 1fr; } .track-overview { position: static; max-height: none; } .track-overview-scroll { max-height: 55vh; } }
 @media (max-width: 540px) { .title-row { align-items: stretch; flex-direction: column; } .library-heading-row { align-items: flex-start; } }

@@ -149,6 +149,24 @@
       <p id="mix-status" role="status" aria-live="polite"></p>
     </section>
 
+    <section class="compilation-video-section" aria-labelledby="compilation-video-heading">
+      <p class="eyebrow">LOCAL FULL-LENGTH MP4</p>
+      <h2 id="compilation-video-heading">Compilation Video Assembly</h2>
+      <p>Combine a completed WAV master with an existing looping visual. This local render never generates media or uploads anything.</p>
+      <label for="compilation-master">Completed WAV master</label>
+      <select id="compilation-master"><option value="">Choose a WAV master</option></select>
+      <label for="compilation-asset">Looping visual asset</label>
+      <select id="compilation-asset"><option value="">Choose a visual asset</option></select>
+      <label for="compilation-title">Video title or output filename</label>
+      <input id="compilation-title" maxlength="160" placeholder="Industrial Afterhours">
+      <div class="track-actions">
+        <button id="compilation-refresh" class="secondary" type="button">Refresh local assets</button>
+        <button id="compilation-plan" type="button">Review assembly plan</button>
+      </div>
+      <div id="compilation-plan-details" class="compilation-plan-details"></div>
+      <p id="compilation-status" role="status" aria-live="polite">Loading completed WAV masters and visual assets…</p>
+    </section>
+
     <section class="library-section" aria-labelledby="library-heading">
       <div class="library-heading-row">
         <div>

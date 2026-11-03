@@ -8,8 +8,9 @@ import { BatchCoordinator } from "./batches.js";
 import { decorateProjectsWithRecordings, regenerateRejectedRecording } from "./regeneration.js";
 import { VIDEO_EXPORTS_DIRECTORY } from "./video.js";
 import { MIXES_DIRECTORY } from "./mixes.js";
+import { COMPILATION_VIDEOS_DIRECTORY } from "./compilation-video.js";
 
-export function createApp({ client, library, projects, projectPlans, batches, videoService, mixStore, mixService, outputDirectory, publicDirectory, logger = console, apiKey = "", startupGenerationBlock }) {
+export function createApp({ client, library, projects, projectPlans, batches, videoService, mixStore, mixService, compilationVideoService, outputDirectory, publicDirectory, logger = console, apiKey = "", startupGenerationBlock }) {
   const app = express();
   let generationInProgress = false;
   const batchCoordinator = batches ? new BatchCoordinator({
@@ -41,6 +42,10 @@ export function createApp({ client, library, projects, projectPlans, batches, vi
     },
   }));
   if (mixService) app.use("/mixes", express.static(path.join(outputDirectory, MIXES_DIRECTORY), {
+    dotfiles: "deny", index: false, fallthrough: false,
+    setHeaders(response) { response.setHeader("Cache-Control", "no-store"); response.setHeader("Content-Disposition", "attachment"); },
+  }));
+  if (compilationVideoService) app.use("/compilation-videos", express.static(path.join(outputDirectory, COMPILATION_VIDEOS_DIRECTORY), {
     dotfiles: "deny", index: false, fallthrough: false,
     setHeaders(response) { response.setHeader("Cache-Control", "no-store"); response.setHeader("Content-Disposition", "attachment"); },
   }));
@@ -145,6 +150,21 @@ export function createApp({ client, library, projects, projectPlans, batches, vi
         const exported = await mixService.render({ mixId: request.params.mixId, outputFilename: request.body?.outputFilename, snapshot: request.body?.snapshot });
         return response.status(201).json({ export: exported });
       } catch (error) { return sendMixError(response, error, logger); }
+    });
+  }
+
+  if (compilationVideoService) {
+    app.get("/api/compilation-videos/sources", async (_request, response) => {
+      try { return response.json({ ...await compilationVideoService.listSources(), status: compilationVideoService.status() }); }
+      catch (error) { return sendCompilationVideoError(response, error, logger); }
+    });
+    app.post("/api/compilation-videos/plan", async (request, response) => {
+      try { return response.json({ plan: await compilationVideoService.plan(request.body ?? {}) }); }
+      catch (error) { return sendCompilationVideoError(response, error, logger); }
+    });
+    app.post("/api/compilation-videos/render", async (request, response) => {
+      try { return response.status(201).json({ video: await compilationVideoService.render(request.body ?? {}) }); }
+      catch (error) { return sendCompilationVideoError(response, error, logger); }
     });
   }
 
@@ -432,6 +452,12 @@ function sendMixError(response, error, logger) {
   if ([400, 404, 409, 503].includes(error?.statusCode)) return response.status(error.statusCode).json({ error: error.message });
   logger.error("Local audio mix operation failed:", { name: error?.name, message: error?.message, code: error?.code });
   return response.status(500).json({ error: error?.message || "Audio mix rendering failed. No completed master was published." });
+}
+
+function sendCompilationVideoError(response, error, logger) {
+  if ([400, 404, 409, 503].includes(error?.statusCode)) return response.status(error.statusCode).json({ error: error.message });
+  logger.error("Compilation video operation failed:", { name: error?.name, message: error?.message, code: error?.code });
+  return response.status(500).json({ error: error?.message || "Compilation video rendering failed. No completed export was published." });
 }
 
 function publicVideoPlan(plan) {

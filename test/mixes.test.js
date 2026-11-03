@@ -70,19 +70,19 @@ test("duration calculation subtracts every crossfade overlap", () => {
 });
 
 test("diagnostic preview reports actual below-minimum duration, overlap, shortfall, and exact boundary", async (t) => {
-  const values = await fixture(t, { probe: async () => ({ duration: 1864, streams: [{ codecType: "audio", codecName: "mp3", duration: 1864 }] }) });
+  const values = await fixture(t, { probe: async () => ({ duration: 1804, streams: [{ codecType: "audio", codecName: "mp3", duration: 1804 }] }) });
   const below = await values.service.preview({ trackIds: values.tracks.slice(0, 2).map((track) => track.id), crossfadeSeconds: 8 });
-  assert.equal(below.totalSourceDuration, 3728);
+  assert.equal(below.totalSourceDuration, 3608);
   assert.equal(below.totalCrossfadeOverlap, 8);
-  assert.equal(below.expectedDuration, 3720);
+  assert.equal(below.expectedDuration, 3600);
   assert.equal(below.meetsMinimum, false);
   assert.equal(below.shortfallSeconds, 0);
   const boundaryMix = await values.store.create({ title: "Boundary", trackIds: values.tracks.slice(0, 2).map((track) => track.id), crossfadeSeconds: 8 });
-  await assert.rejects(() => values.service.plan(boundaryMix.id), /is 62:00 and must be strictly greater/);
+  await assert.rejects(() => values.service.plan(boundaryMix.id), /is 60:00 and must be strictly greater/);
 
   const one = await values.service.preview({ trackIds: [values.tracks[0].id], crossfadeSeconds: 8 });
-  assert.equal(one.expectedDuration, 1864);
-  assert.equal(one.shortfallSeconds, 1856);
+  assert.equal(one.expectedDuration, 1804);
+  assert.equal(one.shortfallSeconds, 1796);
 });
 
 test("recording duration discovery isolates missing or invalid recordings", async (t) => {
@@ -94,10 +94,22 @@ test("recording duration discovery isolates missing or invalid recordings", asyn
   await assert.rejects(() => values.service.preview({ trackIds: [values.tracks[1].id], crossfadeSeconds: 0 }), /missing or invalid/);
 });
 
-test("production planning strictly requires more than 62 minutes and validates adjacent durations", async (t) => {
-  const exact = await fixture(t, { probe: async () => ({ duration: 1862, streams: [{ codecType: "audio", codecName: "mp3", duration: 1862 }] }) });
+test("production planning strictly requires more than 60 minutes and validates adjacent durations", async (t) => {
+  const exact = await fixture(t, { probe: async () => ({ duration: 1802, streams: [{ codecType: "audio", codecName: "mp3", duration: 1802 }] }) });
   const exactMix = await exact.store.create({ title: "Exact", trackIds: exact.tracks.slice(0, 2).map((track) => track.id), crossfadeSeconds: 4 });
-  await assert.rejects(() => exact.service.plan(exactMix.id), /strictly greater than 62:00/);
+  await assert.rejects(() => exact.service.plan(exactMix.id), /strictly greater than 60:00/);
+
+  const fractional = await fixture(t, { probe: async () => ({ duration: 1804.25, streams: [{ codecType: "audio", codecName: "mp3", duration: 1804.25 }] }) });
+  const fractionalMix = await fractional.store.create({ title: "Fractional", trackIds: fractional.tracks.slice(0, 2).map((track) => track.id), crossfadeSeconds: 8 });
+  assert.equal((await fractional.service.plan(fractionalMix.id)).expectedDuration, 3600.5);
+
+  const sixtyForty = await fixture(t, { probe: async () => ({ duration: 1824, streams: [{ codecType: "audio", codecName: "mp3", duration: 1824 }] }) });
+  const sixtyFortyMix = await sixtyForty.store.create({ title: "Sixty Forty", trackIds: sixtyForty.tracks.slice(0, 2).map((track) => track.id), crossfadeSeconds: 8 });
+  assert.equal((await sixtyForty.service.plan(sixtyFortyMix.id)).expectedDuration, 3640);
+
+  const overlap = await fixture(t, { probe: async () => ({ duration: 1800.25, streams: [{ codecType: "audio", codecName: "mp3", duration: 1800.25 }] }) });
+  const overlapMix = await overlap.store.create({ title: "Overlap", trackIds: overlap.tracks.slice(0, 2).map((track) => track.id), crossfadeSeconds: 1 });
+  await assert.rejects(() => overlap.service.plan(overlapMix.id), /is 60:00 and must be strictly greater/);
 
   const short = await fixture(t, { probe: async () => ({ duration: 5, streams: [{ codecType: "audio", codecName: "mp3", duration: 5 }] }) });
   const shortMix = await short.store.create({ title: "Short", trackIds: short.tracks.slice(0, 2).map((track) => track.id), crossfadeSeconds: 8 });
@@ -141,11 +153,20 @@ test("rejects invalid selections, missing recordings, paths, and crossfade value
 
 test("validates WAV container, PCM format, sample rate, channels, duration, and minimum", () => {
   const valid = { formatName: "wav", duration: 4000, streams: [{ codecType: "audio", codecName: "pcm_s24le", sampleRate: 48000, channels: 2, duration: 4000 }] };
-  assert.equal(validateMixOutput(valid, 4000, 3720), 4000);
-  assert.throws(() => validateMixOutput({ ...valid, formatName: "mp3" }, 4000, 3720), /WAV/);
-  assert.throws(() => validateMixOutput({ ...valid, streams: [{ ...valid.streams[0], codecName: "pcm_s16le" }] }, 4000, 3720), /24-bit/);
-  assert.throws(() => validateMixOutput({ ...valid, streams: [{ ...valid.streams[0], sampleRate: 44100 }] }, 4000, 3720), /48,000 Hz stereo/);
-  assert.throws(() => validateMixOutput({ ...valid, duration: 3000, streams: [{ ...valid.streams[0], duration: 3000 }] }, 4000, 3720), /approved plan/);
+  assert.equal(validateMixOutput(valid, 4000, 3600), 4000);
+  assert.throws(() => validateMixOutput({ ...valid, formatName: "mp3" }, 4000, 3600), /WAV/);
+  assert.throws(() => validateMixOutput({ ...valid, streams: [{ ...valid.streams[0], codecName: "pcm_s16le" }] }, 4000, 3600), /24-bit/);
+  assert.throws(() => validateMixOutput({ ...valid, streams: [{ ...valid.streams[0], sampleRate: 44100 }] }, 4000, 3600), /48,000 Hz stereo/);
+  assert.throws(() => validateMixOutput({ ...valid, duration: 3000, streams: [{ ...valid.streams[0], duration: 3000 }] }, 4000, 3600), /approved plan/);
+
+  for (const duration of [3599, 3600]) {
+    const media = { ...valid, duration, streams: [{ ...valid.streams[0], duration }] };
+    assert.throws(() => validateMixOutput(media, duration, 3600), /strictly longer than 60:00/);
+  }
+  for (const duration of [3600.5, 3640]) {
+    const media = { ...valid, duration, streams: [{ ...valid.streams[0], duration }] };
+    assert.equal(validateMixOutput(media, duration, 3600), duration);
+  }
 });
 
 test("failed render cleans private output and preserves every source", async (t) => {

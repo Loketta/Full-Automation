@@ -32,10 +32,10 @@ test("direct recording addition prevents duplicates and accepted project additio
 });
 
 test("duration description reports source, overlap, estimate, strict boundary, and exact shortfall", () => {
-  const below = describeMixDuration({ totalSourceDuration: 3600, totalCrossfadeOverlap: 0, expectedDuration: 3600, minimumDuration: 3720, meetsMinimum: false, shortfallSeconds: 120 });
-  assert.match(below, /Source total: 60:00/); assert.match(below, /Shortfall: 2:00/); assert.match(below, /strictly more than 62:00/);
-  const boundary = describeMixDuration({ totalSourceDuration: 3720, totalCrossfadeOverlap: 0, expectedDuration: 3720, minimumDuration: 3720, meetsMinimum: false, shortfallSeconds: 0 });
-  assert.match(boundary, /must exceed 62:00 by a positive duration/);
+  const below = describeMixDuration({ totalSourceDuration: 3599, totalCrossfadeOverlap: 0, expectedDuration: 3599, minimumDuration: 3600, meetsMinimum: false, shortfallSeconds: 1 });
+  assert.match(below, /Source total: 59:59/); assert.match(below, /Shortfall: 0:01/); assert.match(below, /strictly more than 60:00/);
+  const boundary = describeMixDuration({ totalSourceDuration: 3600, totalCrossfadeOverlap: 0, expectedDuration: 3600, minimumDuration: 3600, meetsMinimum: false, shortfallSeconds: 0 });
+  assert.match(boundary, /must exceed 60:00 by a positive duration/);
 });
 
 test("mix editor preserves missing recording positions until explicitly removed and restores their display", () => {

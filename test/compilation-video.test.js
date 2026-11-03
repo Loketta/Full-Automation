@@ -27,13 +27,16 @@ async function fixture(t, overrides = {}) {
 }
 
 test("builds a fixed YouTube-ready loop command with complete WAV mapping", () => {
-  const args = buildCompilationFfmpegArgs({ audioPath: "master.wav", assetPath: "loop.mp4", outputPath: "out.mp4" });
+  const args = buildCompilationFfmpegArgs({ audioPath: "master.wav", assetPath: "loop.mp4", outputPath: "out.mp4", sourceDuration: 3640.15 });
   assert.deepEqual(args.slice(0, 8), ["-hide_banner", "-n", "-stream_loop", "-1", "-i", "loop.mp4", "-i", "master.wav"]);
-  assert.equal(args[args.indexOf("-vf") + 1], "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1");
+  const filters = args[args.indexOf("-filter_complex") + 1];
+  assert.match(filters, /setpts=N\/FRAME_RATE\/TB/);
+  assert.match(filters, /asetpts=N\/SR\/TB/);
   assert.equal(args[args.indexOf("-pix_fmt") + 1], "yuv420p");
   assert.equal(args[args.indexOf("-b:a") + 1], "320k");
   assert.equal(args[args.indexOf("-ar") + 1], "48000");
-  assert.ok(args.includes("-shortest"));
+  assert.equal(args[args.indexOf("-t") + 1], "3640.150000");
+  assert.equal(args.includes("-shortest"), false);
 });
 
 test("lists designated inputs, plans with durations, rejects stale snapshots, and preserves sources", async (t) => {
@@ -72,13 +75,27 @@ test("rejects traversal, missing and invalid media", async (t) => {
 
 test("validates exact output streams, dimensions, pixel format, and full duration", () => {
   const valid = { formatName: "mov,mp4", duration: 3700.4, streams: [
-    { codecType: "video", codecName: "h264", width: 1920, height: 1080, pixelFormat: "yuv420p" },
+    { codecType: "video", codecName: "h264", width: 1920, height: 1080, pixelFormat: "yuv420p", duration: 3700.4 },
     { codecType: "audio", codecName: "aac", sampleRate: 48000, channels: 2, duration: 3700.4 },
   ] };
   assert.equal(validateCompilationOutput(valid, 3700.25).duration, 3700.4);
   assert.throws(() => validateCompilationOutput({ ...valid, streams: [{ ...valid.streams[0], width: 1280 }, valid.streams[1]] }, 3700.25), /1920 × 1080/);
   assert.throws(() => validateCompilationOutput({ ...valid, streams: [valid.streams[0], { ...valid.streams[1], sampleRate: 44100 }] }, 3700.25), /48 kHz stereo/);
   assert.throws(() => validateCompilationOutput({ ...valid, duration: 3690, streams: [valid.streams[0], { ...valid.streams[1], duration: 3690 }] }, 3700.25), /complete WAV/);
+});
+
+test("duration failures report every actual timeline and signed difference", () => {
+  const media = { formatName: "mov,mp4", duration: 3638.4, streams: [
+    { codecType: "video", codecName: "h264", width: 1920, height: 1080, pixelFormat: "yuv420p", duration: 3638.36 },
+    { codecType: "audio", codecName: "aac", sampleRate: 48000, channels: 2, duration: 3638.38 },
+  ] };
+  assert.throws(() => validateCompilationOutput(media, 3640.15), (error) => {
+    assert.match(error.message, /Expected WAV duration: 3640\.150s/);
+    assert.match(error.message, /Actual encoded audio duration: 3638\.380s \(difference -1\.770s\)/);
+    assert.match(error.message, /Actual video stream duration: 3638\.360s \(difference -1\.790s\)/);
+    assert.match(error.message, /Actual MP4 container duration: 3638\.400s \(difference -1\.750s\)/);
+    return true;
+  });
 });
 
 test("blocks overlap and cleans temporary output after FFmpeg failure", async (t) => {

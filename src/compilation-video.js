@@ -100,7 +100,9 @@ export class CompilationVideoService {
       const finalPath = this.#exportPath(outputFilename);
       if (await exists(this.fs.stat, finalPath)) throw new CompilationConflictError("That compilation video already exists. Review a new plan; nothing was overwritten.");
       temporaryPath = path.join(this.exportsDirectory, `.rendering-${this.randomUUID()}.mp4`);
-      await this.runner.run(this.ffmpeg, buildCompilationFfmpegArgs({ audioPath: inputs.audioPath, assetPath: inputs.assetPath, outputPath: temporaryPath }));
+      await this.runner.run(this.ffmpeg, buildCompilationFfmpegArgs({
+        audioPath: inputs.audioPath, assetPath: inputs.assetPath, outputPath: temporaryPath, sourceDuration: inputs.audioDuration,
+      }));
       await assertFile(this.fs.stat, temporaryPath, "FFmpeg did not produce a complete compilation video.");
       const outputMedia = await this.probe(temporaryPath);
       validateCompilationOutput(outputMedia, inputs.audioDuration, this.toleranceSeconds);
@@ -155,29 +157,40 @@ export class CompilationVideoService {
   #exportPath(filename) { return safeChild(this.exportsDirectory, filename, ".mp4"); }
 }
 
-export function buildCompilationFfmpegArgs({ audioPath, assetPath, outputPath }) {
+export function buildCompilationFfmpegArgs({ audioPath, assetPath, outputPath, sourceDuration }) {
+  if (!Number.isFinite(sourceDuration) || sourceDuration <= 0) throw new CompilationValidationError("A valid probed WAV duration is required before rendering.");
   return [
     "-hide_banner", "-n", "-stream_loop", "-1", "-i", assetPath, "-i", audioPath,
-    "-map", "0:v:0", "-map", "1:a:0",
-    "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1",
+    "-filter_complex", "[0:v:0]setpts=N/FRAME_RATE/TB,scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1[v];[1:a:0]asetpts=N/SR/TB[a]",
+    "-map", "[v]", "-map", "[a]",
     "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "320k", "-ar", "48000", "-ac", "2",
-    "-movflags", "+faststart", "-shortest", "-progress", "pipe:2", "-nostats", outputPath,
+    "-t", sourceDuration.toFixed(6), "-movflags", "+faststart", "-progress", "pipe:2", "-nostats", outputPath,
   ];
 }
 
 export function validateCompilationOutput(media, sourceDuration, tolerance = 1.5) {
   const video = media?.streams?.find((stream) => stream.codecType === "video");
   const audio = media?.streams?.find((stream) => stream.codecType === "audio");
-  const audioDuration = audio?.duration ?? media?.duration;
-  const containerDuration = media?.duration ?? audioDuration;
+  const audioDuration = audio?.duration;
+  const videoDuration = video?.duration;
+  const containerDuration = media?.duration;
   if (!String(media?.formatName ?? "").split(",").some((name) => name === "mp4" || name === "mov")) throw new CompilationRenderError("Rendered output is not a valid MP4 container.");
   if (video?.codecName !== "h264" || video.width !== WIDTH || video.height !== HEIGHT || video.pixelFormat !== "yuv420p") throw new CompilationRenderError("Rendered video must be H.264, 1920 × 1080, yuv420p.");
   if (audio?.codecName !== "aac" || audio.sampleRate !== 48000 || audio.channels !== 2) throw new CompilationRenderError("Rendered audio must be AAC, 48 kHz stereo.");
-  if (!Number.isFinite(audioDuration) || !Number.isFinite(containerDuration)
-    || Math.abs(audioDuration - sourceDuration) > tolerance || Math.abs(containerDuration - sourceDuration) > tolerance) {
-    throw new CompilationRenderError("Rendered duration does not closely match the complete WAV master; no output was published.");
+  if (![audioDuration, videoDuration, containerDuration].every(Number.isFinite)
+    || Math.abs(audioDuration - sourceDuration) > tolerance
+    || Math.abs(videoDuration - sourceDuration) > tolerance
+    || Math.abs(containerDuration - sourceDuration) > tolerance) {
+    throw new CompilationRenderError(`Rendered duration does not closely match the complete WAV master; no output was published. ${durationDiagnostics(sourceDuration, audioDuration, videoDuration, containerDuration)}`);
   }
-  return { duration: containerDuration, audioDuration, width: video.width, height: video.height };
+  return { duration: containerDuration, audioDuration, videoDuration, width: video.width, height: video.height };
+}
+
+function durationDiagnostics(expected, audio, video, container) {
+  const describe = (label, actual) => Number.isFinite(actual)
+    ? `${label}: ${actual.toFixed(3)}s (difference ${(actual - expected).toFixed(3)}s)`
+    : `${label}: unknown (difference unknown)`;
+  return `Expected WAV duration: ${expected.toFixed(3)}s. ${describe("Actual encoded audio duration", audio)}. ${describe("Actual video stream duration", video)}. ${describe("Actual MP4 container duration", container)}.`;
 }
 
 function snapshot(plan, inputs) {

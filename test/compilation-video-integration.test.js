@@ -15,11 +15,11 @@ test("real FFmpeg pipeline loops a short visual across the complete WAV and vali
   const service = new CompilationVideoService(output, { ffmpeg, ffprobe, minimumSourceDuration: 0, toleranceSeconds: 0.5, randomUUID: () => "real" });
   await service.initialize();
   const wav = path.join(output, "mixes", "synthetic.wav"); const asset = path.join(output, "visual-assets", "loop.mp4");
-  await runner.run(ffmpeg, ["-hide_banner", "-loglevel", "error", "-n", "-f", "lavfi", "-i", "sine=frequency=330:sample_rate=48000:duration=3.2", "-c:a", "pcm_s24le", "-ac", "2", wav]);
-  await runner.run(ffmpeg, ["-hide_banner", "-loglevel", "error", "-n", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=0.8", "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p", asset]);
+  await runner.run(ffmpeg, ["-hide_banner", "-loglevel", "error", "-n", "-f", "lavfi", "-i", "sine=frequency=330:sample_rate=48000:duration=4", "-c:a", "pcm_s24le", "-ac", "2", wav]);
+  await runner.run(ffmpeg, ["-hide_banner", "-loglevel", "error", "-n", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25:duration=0.08", "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p", asset]);
   const originalWav = await readFile(wav); const originalAsset = await readFile(asset);
   const source = await probeMedia(runner, ffprobe, wav); const visual = await probeMedia(runner, ffprobe, asset);
-  assert.ok(visual.duration < source.duration / 2, "The visual must loop more than twice during the WAV.");
+  assert.ok(source.duration / visual.duration >= 40, "The test must cross at least 40 loop boundaries to exercise cumulative timestamp behavior.");
   const plan = await service.plan({ masterFilename: "synthetic.wav", assetFilename: "loop.mp4", title: "Synthetic Compilation" });
   const exported = await service.render({ masterFilename: "synthetic.wav", assetFilename: "loop.mp4", outputFilename: plan.outputFilename, snapshot: plan.snapshot });
   const media = await probeMedia(runner, ffprobe, path.join(output, "compilation-videos", exported.filename));

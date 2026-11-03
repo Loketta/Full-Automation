@@ -11,6 +11,7 @@ import { VideoAssemblyService } from "./video.js";
 import { MixAssemblyService, MixStore } from "./mixes.js";
 import { ProjectPlanService } from "./project-plans.js";
 import { CompilationVideoService } from "./compilation-video.js";
+import { YouTubeConnectionService } from "./youtube.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const port = Number.parseInt(process.env.PORT ?? "3000", 10);
@@ -48,6 +49,13 @@ try {
   });
   const compilationVideoStatus = await compilationVideoService.initialize();
   if (!compilationVideoStatus.available) console.warn(compilationVideoStatus.error);
+  const youtubeService = new YouTubeConnectionService({
+    outputDirectory,
+    clientId: process.env.YOUTUBE_OAUTH_CLIENT_ID,
+    clientSecret: process.env.YOUTUBE_OAUTH_CLIENT_SECRET,
+    redirectUri: process.env.YOUTUBE_OAUTH_REDIRECT_URI || `http://127.0.0.1:${port}/api/youtube/oauth/callback`,
+  });
+  await youtubeService.initialize();
   const app = createApp({
     client,
     library,
@@ -58,6 +66,7 @@ try {
     mixStore,
     mixService,
     compilationVideoService,
+    youtubeService,
     startupGenerationBlock: replacementRecovery.pending ? {
       blocked: true,
       outcomeUncertain: true,

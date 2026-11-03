@@ -10,7 +10,7 @@ import { VIDEO_EXPORTS_DIRECTORY } from "./video.js";
 import { MIXES_DIRECTORY } from "./mixes.js";
 import { COMPILATION_VIDEOS_DIRECTORY } from "./compilation-video.js";
 
-export function createApp({ client, library, projects, projectPlans, batches, videoService, mixStore, mixService, compilationVideoService, outputDirectory, publicDirectory, logger = console, apiKey = "", startupGenerationBlock }) {
+export function createApp({ client, library, projects, projectPlans, batches, videoService, mixStore, mixService, compilationVideoService, youtubeService, outputDirectory, publicDirectory, logger = console, apiKey = "", startupGenerationBlock }) {
   const app = express();
   let generationInProgress = false;
   const batchCoordinator = batches ? new BatchCoordinator({
@@ -165,6 +165,32 @@ export function createApp({ client, library, projects, projectPlans, batches, vi
     app.post("/api/compilation-videos/render", async (request, response) => {
       try { return response.status(201).json({ video: await compilationVideoService.render(request.body ?? {}) }); }
       catch (error) { return sendCompilationVideoError(response, error, logger); }
+    });
+  }
+
+  if (youtubeService) {
+    app.get("/api/youtube/status", async (_request, response) => {
+      try { return response.json({ connection: await youtubeService.verify() }); }
+      catch (error) { return sendYouTubeError(response, error, logger); }
+    });
+    app.post("/api/youtube/connect", (_request, response) => {
+      if (!isSameOriginRequest(_request)) return response.status(403).json({ error: "YouTube connection changes are allowed only from this local application." });
+      try { return response.json({ authorizationUrl: youtubeService.beginAuthorization() }); }
+      catch (error) { return sendYouTubeError(response, error, logger); }
+    });
+    app.get("/api/youtube/oauth/callback", async (request, response) => {
+      try {
+        await youtubeService.completeAuthorization(request.query ?? {});
+        return response.type("html").send(oauthCallbackPage("YouTube connected", "Return to Full Automation to verify the authorized channel."));
+      } catch (error) {
+        logger.warn("YouTube OAuth callback failed:", { name: error?.name, message: error?.message });
+        return response.status(error?.statusCode ?? 500).type("html").send(oauthCallbackPage("YouTube connection failed", error?.message ?? "Return to Full Automation and try again."));
+      }
+    });
+    app.post("/api/youtube/disconnect", async (_request, response) => {
+      if (!isSameOriginRequest(_request)) return response.status(403).json({ error: "YouTube connection changes are allowed only from this local application." });
+      try { return response.json({ connection: await youtubeService.disconnect() }); }
+      catch (error) { return sendYouTubeError(response, error, logger); }
     });
   }
 
@@ -458,6 +484,22 @@ function sendCompilationVideoError(response, error, logger) {
   if ([400, 404, 409, 503].includes(error?.statusCode)) return response.status(error.statusCode).json({ error: error.message });
   logger.error("Compilation video operation failed:", { name: error?.name, message: error?.message, code: error?.code });
   return response.status(500).json({ error: error?.message || "Compilation video rendering failed. No completed export was published." });
+}
+
+function sendYouTubeError(response, error, logger) {
+  if ([400, 409, 503].includes(error?.statusCode)) return response.status(error.statusCode).json({ error: error.message });
+  logger.error("YouTube connection operation failed:", { name: error?.name, message: error?.message, code: error?.code });
+  return response.status(500).json({ error: "The local YouTube connection could not be updated. No upload was attempted. Check the terminal." });
+}
+
+function oauthCallbackPage(title, message) {
+  const escape = (value) => String(value).replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${escape(title)}</title></head><body><h1>${escape(title)}</h1><p>${escape(message)}</p><p>You can close this window.</p><script>window.opener?.postMessage({type:"youtube-oauth-complete"}, window.location.origin);</script></body></html>`;
+}
+
+function isSameOriginRequest(request) {
+  const origin = request.get("origin");
+  return !origin || origin === `${request.protocol}://${request.get("host")}`;
 }
 
 function publicVideoPlan(plan) {

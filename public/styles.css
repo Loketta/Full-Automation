@@ -108,6 +108,11 @@ select { display: block; margin-top: .45rem; padding: .55rem .7rem; border: 1px 
 .compilation-video-section select { width: 100%; margin-bottom: 1rem; }
 .compilation-plan-details { margin-top: 1rem; padding: .8rem; border-left: 3px solid #8ef4d2; background: #14211f; color: #dffdf3; overflow-wrap: anywhere; }
 .compilation-plan-details:empty { display: none; }
+.youtube-section { margin-top: 3rem; }
+.youtube-section > h2 { font-size: 2rem; margin: .25rem 0; }
+.youtube-channel { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 1rem; align-items: center; padding: 1rem; border: 1px solid #3d4664; border-radius: 12px; background: #0d101a; }
+.youtube-channel img { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; }
+.youtube-channel p { margin: .25rem 0; overflow-wrap: anywhere; }
 @media (min-width: 900px) { .projects-section { width: min(1120px, calc(100vw - 3rem)); margin-left: 50%; transform: translateX(-50%); } }
 @media (max-width: 760px) { .project-workspace { grid-template-columns: 1fr; } .track-overview { position: static; max-height: none; } .track-overview-scroll { max-height: 55vh; } }
 @media (max-width: 540px) { .title-row { align-items: stretch; flex-direction: column; } .library-heading-row { align-items: flex-start; } }

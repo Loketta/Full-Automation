@@ -177,7 +177,25 @@
         <button id="youtube-disconnect" class="danger" type="button" hidden>Disconnect</button>
       </div>
       <p id="youtube-status" role="status" aria-live="polite">Checking YouTube connection…</p>
-      <p class="warning"><strong>Safety:</strong> no uploads, background publishing, scheduling, or video changes occur in this milestone. Future uploads will default to Private.</p>
+      <p class="warning"><strong>Safety:</strong> connecting or changing channels does not upload or modify videos. Uploads below are manual, explicitly confirmed, and Private only.</p>
+    </section>
+
+    <section class="youtube-upload-section" aria-labelledby="youtube-upload-heading">
+      <p class="eyebrow">EXPLICIT PRIVATE TRANSFER</p>
+      <h2 id="youtube-upload-heading">YouTube Uploads</h2>
+      <p class="warning"><strong>Private only:</strong> every upload in this milestone is enforced as Private by the server. There is no Public, Unlisted, scheduled, or automatic upload option.</p>
+      <label for="youtube-upload-source">Completed compilation MP4</label>
+      <select id="youtube-upload-source"><option value="">Choose a completed compilation</option></select>
+      <label for="youtube-upload-title">Video title</label>
+      <input id="youtube-upload-title" maxlength="100">
+      <label for="youtube-upload-description">Description</label>
+      <textarea id="youtube-upload-description" maxlength="5000"></textarea>
+      <label for="youtube-upload-tags">Comma-separated tags</label>
+      <input id="youtube-upload-tags" maxlength="500">
+      <button id="youtube-upload-plan" type="button">Review private upload plan</button>
+      <div id="youtube-upload-plan-details" class="youtube-upload-plan"></div>
+      <p id="youtube-upload-status" role="status" aria-live="polite">Loading completed compilations and upload records…</p>
+      <div id="youtube-upload-records" class="youtube-upload-records"></div>
     </section>
 
     <section class="library-section" aria-labelledby="library-heading">

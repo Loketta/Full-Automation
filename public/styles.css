@@ -113,6 +113,16 @@ select { display: block; margin-top: .45rem; padding: .55rem .7rem; border: 1px 
 .youtube-channel { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 1rem; align-items: center; padding: 1rem; border: 1px solid #3d4664; border-radius: 12px; background: #0d101a; }
 .youtube-channel img { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; }
 .youtube-channel p { margin: .25rem 0; overflow-wrap: anywhere; }
+.youtube-upload-section { margin-top: 3rem; }
+.youtube-upload-section > h2 { font-size: 2rem; margin: .25rem 0; }
+.youtube-upload-section select { width: 100%; margin-bottom: 1rem; }
+.youtube-upload-section textarea { min-height: 120px; }
+.youtube-upload-plan { margin-top: 1rem; padding: .8rem; border-left: 3px solid #8ef4d2; background: #14211f; overflow-wrap: anywhere; }
+.youtube-upload-plan:empty { display: none; }
+.youtube-upload-records { display: grid; gap: .75rem; margin-top: 1rem; }
+.youtube-upload-record { padding: .85rem; border: 1px solid #3d4664; border-radius: 10px; background: #0d101a; }
+.youtube-upload-record p { margin: .35rem 0; overflow-wrap: anywhere; }
+.youtube-upload-record progress { width: 100%; }
 @media (min-width: 900px) { .projects-section { width: min(1120px, calc(100vw - 3rem)); margin-left: 50%; transform: translateX(-50%); } }
 @media (max-width: 760px) { .project-workspace { grid-template-columns: 1fr; } .track-overview { position: static; max-height: none; } .track-overview-scroll { max-height: 55vh; } }
 @media (max-width: 540px) { .title-row { align-items: stretch; flex-direction: column; } .library-heading-row { align-items: flex-start; } }

@@ -13,6 +13,7 @@ import { addAcceptedProjectRecordings, addRecordingToMix, buildMixConfirmation, 
 import { buildProjectTrackOverview, focusPlannedTrack } from "./project-overview.js";
 import { buildAppendConfirmation } from "./project-plan-state.js";
 import { buildCompilationVideoConfirmation, formatCompilationDuration } from "./compilation-video-state.js";
+import { buildYouTubeUploadConfirmation, formatUploadBytes, formatUploadDuration } from "./youtube-upload-state.js";
 
 const form = document.querySelector("#generate-form");
 const prompt = document.querySelector("#prompt");
@@ -68,6 +69,14 @@ const youtubeChannel = document.querySelector("#youtube-channel");
 const youtubeConnect = document.querySelector("#youtube-connect");
 const youtubeDisconnect = document.querySelector("#youtube-disconnect");
 const youtubeStatus = document.querySelector("#youtube-status");
+const youtubeUploadSource = document.querySelector("#youtube-upload-source");
+const youtubeUploadTitle = document.querySelector("#youtube-upload-title");
+const youtubeUploadDescription = document.querySelector("#youtube-upload-description");
+const youtubeUploadTags = document.querySelector("#youtube-upload-tags");
+const youtubeUploadPlanButton = document.querySelector("#youtube-upload-plan");
+const youtubeUploadPlanDetails = document.querySelector("#youtube-upload-plan-details");
+const youtubeUploadStatus = document.querySelector("#youtube-upload-status");
+const youtubeUploadRecords = document.querySelector("#youtube-upload-records");
 let projects = [];
 let libraryTracks = [];
 let mixes = [];
@@ -84,6 +93,8 @@ let selectedBatchTrackIds = [];
 let batchActionsBlocked = false;
 let approvedCompilationPlan;
 let youtubeAuthPoll;
+let approvedYouTubeUploadPlan;
+let youtubeUploadPoll;
 
 player.volume = Number(volume.value);
 volume.addEventListener("input", () => {
@@ -136,12 +147,15 @@ loadProjectPlans();
 loadMixes();
 loadCompilationSources();
 loadYouTubeConnection();
+loadYouTubeUploads();
 
 compilationRefresh.addEventListener("click", loadCompilationSources);
 for (const input of [compilationMaster, compilationAsset, compilationTitle]) input.addEventListener("input", invalidateCompilationPlan);
 compilationPlanButton.addEventListener("click", reviewCompilationPlan);
 youtubeConnect.addEventListener("click", connectYouTube);
 youtubeDisconnect.addEventListener("click", disconnectYouTube);
+youtubeUploadPlanButton.addEventListener("click", reviewYouTubeUploadPlan);
+for (const input of [youtubeUploadSource, youtubeUploadTitle, youtubeUploadDescription, youtubeUploadTags]) input.addEventListener("input", () => { approvedYouTubeUploadPlan = undefined; youtubeUploadPlanDetails.replaceChildren(); });
 window.addEventListener("message", (event) => {
   if (event.origin === window.location.origin && event.data?.type === "youtube-oauth-complete") {
     clearInterval(youtubeAuthPoll); youtubeAuthPoll = undefined; loadYouTubeConnection();
@@ -1335,6 +1349,74 @@ async function disconnectYouTube() {
   youtubeStatus.textContent = "Disconnecting YouTube authorization…";
   try { const data = await apiJson("/api/youtube/disconnect", { method: "POST" }); renderYouTubeConnection(data.connection); }
   catch (error) { youtubeStatus.textContent = error.message; youtubeDisconnect.disabled = false; }
+}
+
+async function loadYouTubeUploads() {
+  try {
+    const data = await apiJson("/api/youtube/uploads");
+    const selected = youtubeUploadSource.value;
+    youtubeUploadSource.replaceChildren(new Option("Choose a completed compilation", ""), ...data.sources.map((source) => new Option(`${source.filename} — ${formatUploadBytes(source.size)}`, source.filename)));
+    if (data.sources.some((source) => source.filename === selected)) youtubeUploadSource.value = selected;
+    renderYouTubeUploadRecords(data.records);
+    youtubeUploadStatus.textContent = data.status.blocked ? data.status.message : data.status.active ? "A private YouTube upload is active. Progress updates automatically." : `${data.sources.length} completed compilation(s) available. No upload starts without plan review and confirmation.`;
+    clearInterval(youtubeUploadPoll);
+    if (data.status.active) youtubeUploadPoll = setInterval(loadYouTubeUploads, 1500);
+  } catch (error) { youtubeUploadStatus.textContent = error.message; }
+}
+
+function renderYouTubeUploadRecords(records) {
+  youtubeUploadRecords.replaceChildren();
+  if (!records.length) { const empty = document.createElement("p"); empty.className = "track-meta"; empty.textContent = "No YouTube upload records yet."; youtubeUploadRecords.append(empty); return; }
+  for (const record of records) {
+    const card = document.createElement("article"); card.className = "youtube-upload-record";
+    const heading = document.createElement("strong"); heading.textContent = record.title;
+    const statusLine = document.createElement("p"); statusLine.textContent = `${record.status} · PRIVATE · ${record.sourceFilename}`;
+    const channel = document.createElement("p"); channel.textContent = `Destination channel: ${record.channelName ?? "Verified channel"} (${record.channelId})`;
+    const progress = document.createElement("progress"); progress.max = 100; progress.value = record.progressPercent; progress.setAttribute("aria-label", `${record.title} upload progress`);
+    const bytes = document.createElement("p"); bytes.textContent = `${formatUploadBytes(record.uploadedBytes)} of ${formatUploadBytes(record.sourceSize)} (${record.progressPercent.toFixed(1)}%)`;
+    const message = document.createElement("p"); message.className = "track-meta"; message.textContent = record.message ?? "";
+    card.append(heading, statusLine, channel, progress, bytes, message);
+    if (record.youtubeVideoId) {
+      const id = document.createElement("p"); id.textContent = `YouTube video ID: ${record.youtubeVideoId}`;
+      const link = document.createElement("a"); link.className = "text-link"; link.href = record.youtubeVideoUrl; link.target = "_blank"; link.rel = "noopener noreferrer"; link.textContent = "Open private video on YouTube";
+      card.append(id, link);
+    }
+    if (record.canResume) {
+      const resume = document.createElement("button"); resume.type = "button"; resume.className = "secondary compact"; resume.textContent = "Resume saved session";
+      resume.addEventListener("click", () => resumeYouTubeUpload(record)); card.append(resume);
+    }
+    youtubeUploadRecords.append(card);
+  }
+}
+
+async function reviewYouTubeUploadPlan() {
+  approvedYouTubeUploadPlan = undefined; youtubeUploadPlanDetails.replaceChildren(); youtubeUploadPlanButton.disabled = true;
+  youtubeUploadStatus.textContent = "Inspecting the source and verifying the connected channel…";
+  try {
+    const data = await apiJson("/api/youtube/uploads/plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ filename: youtubeUploadSource.value, title: youtubeUploadTitle.value, description: youtubeUploadDescription.value, tags: youtubeUploadTags.value }) });
+    approvedYouTubeUploadPlan = data.plan; const plan = data.plan;
+    const summary = document.createElement("p"); summary.textContent = `PRIVATE upload · ${plan.source.filename} · ${formatUploadBytes(plan.source.size)} · ${formatUploadDuration(plan.source.duration)} · Destination: ${plan.channel.name}${plan.channel.handle ? ` (${plan.channel.handle})` : ""} · Channel ID: ${plan.channel.id}`;
+    const start = document.createElement("button"); start.type = "button"; start.textContent = "Upload privately to YouTube"; start.addEventListener("click", startYouTubeUpload);
+    youtubeUploadPlanDetails.replaceChildren(summary, start); youtubeUploadStatus.textContent = "Review the exact destination and PRIVATE visibility, then explicitly confirm the upload.";
+  } catch (error) { youtubeUploadStatus.textContent = error.message; }
+  finally { youtubeUploadPlanButton.disabled = false; }
+}
+
+async function startYouTubeUpload(event) {
+  const plan = approvedYouTubeUploadPlan;
+  if (!plan || !window.confirm(buildYouTubeUploadConfirmation(plan))) { youtubeUploadStatus.textContent = "Upload cancelled. No YouTube session was created."; return; }
+  event.currentTarget.disabled = true; youtubeUploadStatus.textContent = "Starting the explicitly approved PRIVATE resumable upload…";
+  try {
+    await apiJson("/api/youtube/uploads", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ filename: plan.source.filename, title: plan.title, description: plan.description, tags: plan.tags, snapshot: plan.snapshot }) });
+    approvedYouTubeUploadPlan = undefined; youtubeUploadPlanDetails.replaceChildren(); await loadYouTubeUploads();
+  } catch (error) { youtubeUploadStatus.textContent = error.message; event.currentTarget.disabled = false; }
+}
+
+async function resumeYouTubeUpload(record) {
+  if (!window.confirm(`Resume the existing PRIVATE upload session for “${record.title}”? No new YouTube video or upload session will be created.`)) return;
+  youtubeUploadStatus.textContent = "Checking and resuming the saved YouTube session…";
+  try { await apiJson(`/api/youtube/uploads/${encodeURIComponent(record.id)}/resume`, { method: "POST" }); await loadYouTubeUploads(); }
+  catch (error) { youtubeUploadStatus.textContent = error.message; }
 }
 
 async function apiJson(url, options) {

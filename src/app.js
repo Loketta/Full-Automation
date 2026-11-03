@@ -10,7 +10,7 @@ import { VIDEO_EXPORTS_DIRECTORY } from "./video.js";
 import { MIXES_DIRECTORY } from "./mixes.js";
 import { COMPILATION_VIDEOS_DIRECTORY } from "./compilation-video.js";
 
-export function createApp({ client, library, projects, projectPlans, batches, videoService, mixStore, mixService, compilationVideoService, youtubeService, outputDirectory, publicDirectory, logger = console, apiKey = "", startupGenerationBlock }) {
+export function createApp({ client, library, projects, projectPlans, batches, videoService, mixStore, mixService, compilationVideoService, youtubeService, youtubeUploadService, outputDirectory, publicDirectory, logger = console, apiKey = "", startupGenerationBlock }) {
   const app = express();
   let generationInProgress = false;
   const batchCoordinator = batches ? new BatchCoordinator({
@@ -191,6 +191,28 @@ export function createApp({ client, library, projects, projectPlans, batches, vi
       if (!isSameOriginRequest(_request)) return response.status(403).json({ error: "YouTube connection changes are allowed only from this local application." });
       try { return response.json({ connection: await youtubeService.disconnect() }); }
       catch (error) { return sendYouTubeError(response, error, logger); }
+    });
+  }
+
+  if (youtubeUploadService) {
+    app.get("/api/youtube/uploads", async (_request, response) => {
+      try { return response.json({ sources: await youtubeUploadService.listSources(), records: youtubeUploadService.list(), status: youtubeUploadService.status() }); }
+      catch (error) { return sendYouTubeUploadError(response, error, logger); }
+    });
+    app.post("/api/youtube/uploads/plan", async (request, response) => {
+      if (!isSameOriginRequest(request)) return response.status(403).json({ error: "YouTube upload actions are allowed only from this local application." });
+      try { return response.json({ plan: await youtubeUploadService.plan(request.body ?? {}) }); }
+      catch (error) { return sendYouTubeUploadError(response, error, logger); }
+    });
+    app.post("/api/youtube/uploads", async (request, response) => {
+      if (!isSameOriginRequest(request)) return response.status(403).json({ error: "YouTube upload actions are allowed only from this local application." });
+      try { return response.status(202).json({ upload: await youtubeUploadService.start(request.body ?? {}) }); }
+      catch (error) { return sendYouTubeUploadError(response, error, logger); }
+    });
+    app.post("/api/youtube/uploads/:uploadId/resume", async (request, response) => {
+      if (!isSameOriginRequest(request)) return response.status(403).json({ error: "YouTube upload actions are allowed only from this local application." });
+      try { return response.status(202).json({ upload: await youtubeUploadService.resume(request.params.uploadId) }); }
+      catch (error) { return sendYouTubeUploadError(response, error, logger); }
     });
   }
 
@@ -490,6 +512,12 @@ function sendYouTubeError(response, error, logger) {
   if ([400, 409, 503].includes(error?.statusCode)) return response.status(error.statusCode).json({ error: error.message });
   logger.error("YouTube connection operation failed:", { name: error?.name, message: error?.message, code: error?.code });
   return response.status(500).json({ error: "The local YouTube connection could not be updated. No upload was attempted. Check the terminal." });
+}
+
+function sendYouTubeUploadError(response, error, logger) {
+  if ([400, 404, 409, 502, 503].includes(error?.statusCode)) return response.status(error.statusCode).json({ error: error.message });
+  logger.error("YouTube upload operation failed:", { name: error?.name, message: error?.message, code: error?.code });
+  return response.status(500).json({ error: "YouTube upload state could not be safely updated. No replacement upload was started. Check the terminal." });
 }
 
 function oauthCallbackPage(title, message) {

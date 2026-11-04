@@ -90,6 +90,8 @@ const youtubeAnalysisReport = document.querySelector("#youtube-analysis-report")
 const youtubeAnalysisProfilePreview = document.querySelector("#youtube-analysis-profile-preview");
 const youtubeAnalysisAccept = document.querySelector("#youtube-analysis-accept");
 const youtubeMetadataProject = document.querySelector("#youtube-metadata-project");
+const youtubeMetadataKind = document.querySelector("#youtube-metadata-kind");
+const youtubeMetadataTrack = document.querySelector("#youtube-metadata-track");
 const youtubeMetadataMix = document.querySelector("#youtube-metadata-mix");
 const youtubeMetadataSource = document.querySelector("#youtube-metadata-source");
 const youtubeMetadataGenerate = document.querySelector("#youtube-metadata-generate");
@@ -97,6 +99,7 @@ const youtubeMetadataTitle = document.querySelector("#youtube-metadata-title");
 const youtubeMetadataDescription = document.querySelector("#youtube-metadata-description");
 const youtubeMetadataTags = document.querySelector("#youtube-metadata-tags");
 const youtubeChapterPreview = document.querySelector("#youtube-chapter-preview");
+const youtubeMetadataAnalysis = document.querySelector("#youtube-metadata-analysis");
 const youtubeMetadataApprove = document.querySelector("#youtube-metadata-approve");
 const youtubeMetadataUse = document.querySelector("#youtube-metadata-use");
 const youtubeMetadataStatus = document.querySelector("#youtube-metadata-status");
@@ -191,7 +194,7 @@ youtubeAnalysisAccept.addEventListener("click", acceptYouTubeStyleProposal);
 youtubeMetadataGenerate.addEventListener("click", generateYouTubeMetadata);
 youtubeMetadataApprove.addEventListener("click", approveYouTubeMetadata);
 youtubeMetadataUse.addEventListener("click", useYouTubeMetadata);
-for (const field of [youtubeMetadataProject, youtubeMetadataMix, youtubeMetadataSource]) field.addEventListener("input", invalidateYouTubeMetadata);
+for (const field of [youtubeMetadataKind, youtubeMetadataProject, youtubeMetadataTrack, youtubeMetadataMix, youtubeMetadataSource]) field.addEventListener("input", () => { refreshYouTubeMetadataSelectors(); invalidateYouTubeMetadata(); });
 for (const input of [youtubeUploadSource, youtubeUploadTitle, youtubeUploadDescription, youtubeUploadTags]) input.addEventListener("input", () => { approvedYouTubeUploadPlan = undefined; youtubeUploadPlanDetails.replaceChildren(); });
 window.addEventListener("message", (event) => {
   if (event.origin === window.location.origin && event.data?.type === "youtube-oauth-complete") {
@@ -1439,6 +1442,9 @@ function refreshYouTubeMetadataSelectors() {
   youtubeMetadataMix.replaceChildren(new Option("Choose a mix", ""), ...mixes.map((mix) => new Option(mix.title, mix.id)));
   if (projects.some((project) => project.id === selectedProject)) youtubeMetadataProject.value = selectedProject;
   if (mixes.some((mix) => mix.id === selectedMix)) youtubeMetadataMix.value = selectedMix;
+  const project = projects.find((item) => item.id === youtubeMetadataProject.value); const selectedTrack = youtubeMetadataTrack.value; const tracks = (project?.tracks ?? []).filter((track) => track.libraryTrackId);
+  youtubeMetadataTrack.replaceChildren(new Option("Choose a generated track", ""), ...tracks.map((track) => new Option(track.title, track.id))); if (tracks.some((track) => track.id === selectedTrack)) youtubeMetadataTrack.value = selectedTrack;
+  const individual = youtubeMetadataKind.value === "individual"; youtubeMetadataTrack.disabled = !individual; youtubeMetadataMix.disabled = individual; youtubeMetadataSource.disabled = individual;
 }
 
 async function importYouTubeStyle() {
@@ -1489,17 +1495,18 @@ async function acceptYouTubeStyleProposal() {
 function invalidateYouTubeMetadata() { generatedYouTubeMetadata = undefined; youtubeMetadataApprove.disabled = true; youtubeMetadataUse.disabled = true; youtubeMetadataStatus.textContent = "Selection changed. Generate metadata again before approval."; }
 
 async function generateYouTubeMetadata() {
-  invalidateYouTubeMetadata(); youtubeMetadataGenerate.disabled = true; youtubeMetadataStatus.textContent = "Building chapters from the actual mix timeline…";
+  invalidateYouTubeMetadata(); youtubeMetadataGenerate.disabled = true; const individual = youtubeMetadataKind.value === "individual"; youtubeMetadataStatus.textContent = individual ? "Building track metadata from the saved project and recording…" : "Building chapters from the actual mix timeline…";
   try {
-    const data = await apiJson("/api/youtube/metadata/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectId: youtubeMetadataProject.value, mixId: youtubeMetadataMix.value, sourceFilename: youtubeMetadataSource.value }) });
-    generatedYouTubeMetadata = data.metadata; youtubeMetadataTitle.value = data.metadata.title; youtubeMetadataDescription.value = data.metadata.description; youtubeMetadataTags.value = data.metadata.tags.join(", "); youtubeChapterPreview.textContent = data.metadata.chapters; youtubeMetadataApprove.disabled = false; youtubeMetadataUse.disabled = false; youtubeMetadataStatus.textContent = "Metadata generated locally. Review and edit it before approval or use.";
+    const endpoint = individual ? "/api/youtube/metadata/generate-track" : "/api/youtube/metadata/generate"; const body = individual ? { projectId: youtubeMetadataProject.value, trackId: youtubeMetadataTrack.value } : { projectId: youtubeMetadataProject.value, mixId: youtubeMetadataMix.value, sourceFilename: youtubeMetadataSource.value };
+    const data = await apiJson(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    generatedYouTubeMetadata = data.metadata; youtubeMetadataTitle.value = data.metadata.title; youtubeMetadataDescription.value = data.metadata.description; youtubeMetadataTags.value = data.metadata.tags.join(", "); youtubeChapterPreview.textContent = data.metadata.chapters || "No chapters for individual-track metadata."; youtubeMetadataAnalysis.textContent = `Selected genre profiles: ${data.metadata.selectedGenreProfiles.join(", ") || "none"}. Hashtags: ${data.metadata.hashtags.join(" ") || "none"}. ${data.metadata.warnings.join(" ")}`; youtubeMetadataApprove.disabled = false; youtubeMetadataUse.disabled = individual; youtubeMetadataStatus.textContent = "Metadata generated locally. Review and edit every field before approval.";
   } catch (error) { youtubeMetadataStatus.textContent = error.message; }
   finally { youtubeMetadataGenerate.disabled = false; }
 }
 
 async function approveYouTubeMetadata() {
   if (!generatedYouTubeMetadata) return;
-  try { await apiJson("/api/youtube/metadata/approve", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectId: generatedYouTubeMetadata.projectId, mixId: generatedYouTubeMetadata.mixId, sourceFilename: generatedYouTubeMetadata.source.filename, inputSnapshot: generatedYouTubeMetadata.inputSnapshot, title: youtubeMetadataTitle.value, description: youtubeMetadataDescription.value, tags: youtubeMetadataTags.value }) }); youtubeMetadataStatus.textContent = "Approved metadata saved for this exact project, mix and source fingerprint."; }
+  try { await apiJson("/api/youtube/metadata/approve", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: generatedYouTubeMetadata.kind, projectId: generatedYouTubeMetadata.projectId, trackId: generatedYouTubeMetadata.trackId, mixId: generatedYouTubeMetadata.mixId, sourceFilename: generatedYouTubeMetadata.source.filename, inputSnapshot: generatedYouTubeMetadata.inputSnapshot, title: youtubeMetadataTitle.value, description: youtubeMetadataDescription.value, tags: youtubeMetadataTags.value }) }); youtubeMetadataStatus.textContent = "Approved metadata saved for this exact project, source, profile and provenance state."; }
   catch (error) { youtubeMetadataStatus.textContent = error.message; }
 }
 

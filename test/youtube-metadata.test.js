@@ -85,6 +85,17 @@ test("completed timeline validates the final chapter and exact video-duration bo
   assert.throws(() => validateCompletedTimeline([{ ...valid[0] }, { ...valid[1] }, { ...valid[2], duration: 15 }], 60, 60), /does not end/i);
 });
 
+test("individual-track metadata uses its own template, grounded genre profile and approval snapshot", async (t) => {
+  const root = await mkdtemp(path.join(process.cwd(), ".test-tmp-youtube-track-metadata-")); t.after(() => rm(root, { recursive: true, force: true })); let direction = "Industrial combat music for tabletop gaming";
+  const project = { id: "p", name: "Night Run", theme: "Cyberpunk industrial soundtrack for tabletop sessions.", tracks: [] }; const track = { id: "pt", title: "Steel Horizon", direction, prompt: "Instrumental industrial combat music. No vocals.", status: "Generated", libraryTrackId: "recording" }; project.tracks = [track];
+  const service = new YouTubeMetadataService({ store: new YouTubeMetadataStore(root), projects: { getTrack() { return { project: structuredClone(project), track: { ...track, direction } }; } }, library: { get() { return { id: "recording", filename: "steel.mp3", title: "Steel Horizon", createdAt: "2026-01-01", reviewStatus: "Keep" }; } } }); await service.initialize();
+  await assert.rejects(() => service.saveProfile({ individualTrackTitleTemplate: "{track} {unsupported}" }), /unsupported.*\{unsupported\}/i);
+  await service.saveProfile({ individualTrackTitleTemplate: "{track} // {genre}", introduction: "Music for {mood_or_scene}.", hashtags: ["#cyberpunk"], genreProfiles: [{ genre: "industrial", keywords: ["industrial", "combat"], tags: ["industrial music"], hashtags: ["#industrial"], sourceVideoIds: ["v"] }] });
+  const generated = await service.generateIndividual({ projectId: "p", trackId: "pt" }); assert.equal(generated.title, "Steel Horizon // industrial"); assert.match(generated.description, /Music for Industrial combat music for tabletop gaming\./); assert.deepEqual(generated.selectedGenreProfiles, ["industrial"]); assert.equal(generated.chapters, "");
+  const approval = await service.approve({ kind: "individual", projectId: "p", trackId: "pt", inputSnapshot: generated.inputSnapshot, title: generated.title, description: generated.description, tags: generated.tags }); assert.equal(approval.kind, "individual"); direction = "Changed direction"; await assert.rejects(() => service.approve({ kind: "individual", projectId: "p", trackId: "pt", inputSnapshot: generated.inputSnapshot, title: generated.title, description: generated.description, tags: generated.tags }), /changed/);
+  await service.store.update((data) => { data.profile.individualTrackTitleTemplate = "{track} {legacy_unknown}"; }); await assert.rejects(() => service.generateIndividual({ projectId: "p", trackId: "pt" }), /unsupported.*\{legacy_unknown\}/i); assert.equal(service.state().profile.individualTrackTitleTemplate, "{track} {legacy_unknown}");
+});
+
 test("reviewed proposal remains separate until explicit acceptance and preserves unrelated manual fields", async (t) => {
   const root = await mkdtemp(path.join(process.cwd(), ".test-tmp-analysis-proposal-")); t.after(() => rm(root, { recursive: true, force: true })); const store = new YouTubeMetadataStore(root); await store.initialize();
   const imports = [{ id: "v1", title: "Mix", description: "Description", tags: ["music"], duration: 3600, publishedAt: "2026-01-01T00:00:00Z" }, { id: "v2", title: "Track", description: "Description", tags: ["music"], duration: 240, publishedAt: "2026-01-02T00:00:00Z" }];

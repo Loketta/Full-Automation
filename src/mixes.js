@@ -233,7 +233,7 @@ export class MixAssemblyService {
       try { await this.fs.publish(temporaryPath, finalPath); }
       catch (error) { if (error?.code === "EEXIST") throw new MixConflictError("The output filename became occupied. Nothing was overwritten."); throw error; }
       await this.fs.rm(temporaryPath, { force: true }).catch(() => {});
-      const exported = { filename: outputFilename, createdAt: this.now().toISOString(), duration: plan.expectedDuration, snapshot };
+      const exported = { filename: outputFilename, createdAt: this.now().toISOString(), duration: plan.expectedDuration, snapshot, timeline: buildMixTimeline(plan.tracks, plan.transitions) };
       try { await this.store.recordExport(mixId, exported); }
       catch (error) { await this.fs.rm(finalPath, { force: true }).catch(() => {}); throw error; }
       return { ...exported, downloadUrl: `/mixes/${encodeURIComponent(outputFilename)}` };
@@ -260,6 +260,15 @@ export function calculateMixDuration(tracks, transitions) {
   const totalSourceDuration = tracks.reduce((sum, track) => sum + track.duration, 0);
   const totalCrossfadeOverlap = transitions.reduce((sum, transition) => sum + transition.duration, 0);
   return { totalSourceDuration, totalCrossfadeOverlap, expectedDuration: totalSourceDuration - totalCrossfadeOverlap };
+}
+
+export function buildMixTimeline(tracks, transitions) {
+  let startSeconds = 0;
+  return tracks.map((track, index) => {
+    const item = { trackId: track.id, title: track.title, startSeconds, duration: track.duration };
+    if (index < tracks.length - 1) startSeconds += track.duration - Number(transitions[index]?.duration ?? 0);
+    return item;
+  });
 }
 
 export function buildMixFfmpegArgs({ tracks, transitions, outputPath }) {

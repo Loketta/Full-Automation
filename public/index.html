@@ -180,6 +180,44 @@
       <p class="warning"><strong>Safety:</strong> connecting or changing channels does not upload or modify videos. Uploads below are manual, explicitly confirmed, and Private only.</p>
     </section>
 
+    <section class="youtube-metadata-section" aria-labelledby="youtube-metadata-heading">
+      <p class="eyebrow">BEYOND THE BLACKWALL</p>
+      <h2 id="youtube-metadata-heading">YouTube Metadata</h2>
+      <p>Import the authorized channel's existing metadata, edit its deterministic style profile, and generate reviewable metadata from an actual project and mix timeline. Nothing here uploads or modifies a YouTube video.</p>
+      <div class="track-actions">
+        <button id="youtube-style-import" type="button">Import Channel Style</button>
+        <button id="youtube-style-refresh" class="secondary" type="button">Refresh Channel Style</button>
+      </div>
+      <p id="youtube-style-status" role="status" aria-live="polite">Channel style has not been loaded.</p>
+      <details>
+        <summary>Channel style profile editor</summary>
+        <label for="youtube-style-title-template">Title template ({project}, {duration}, {genre})</label><input id="youtube-style-title-template" maxlength="200">
+        <label for="youtube-style-introduction">Recurring introduction</label><textarea id="youtube-style-introduction" maxlength="5000"></textarea>
+        <label for="youtube-style-reusable">Reusable description text</label><textarea id="youtube-style-reusable" maxlength="5000"></textarea>
+        <label for="youtube-style-footer">Recurring footer</label><textarea id="youtube-style-footer" maxlength="5000"></textarea>
+        <label for="youtube-style-links">Channel links, one per line</label><textarea id="youtube-style-links"></textarea>
+        <label for="youtube-style-genres">Genre vocabulary, comma-separated</label><input id="youtube-style-genres">
+        <label for="youtube-style-duration-terms">Video-length terminology, comma-separated</label><input id="youtube-style-duration-terms">
+        <label for="youtube-style-tags">Recurring tags, comma-separated</label><input id="youtube-style-tags">
+        <label for="youtube-style-hashtags">Recurring hashtags, comma-separated</label><input id="youtube-style-hashtags">
+        <label for="youtube-style-thumbnail">Thumbnail branding reference</label><input id="youtube-style-thumbnail" maxlength="500">
+        <button id="youtube-style-save" type="button">Save style profile</button>
+        <div id="youtube-style-sources" class="track-meta"></div>
+      </details>
+      <div class="youtube-metadata-grid">
+        <div><label for="youtube-metadata-project">Completed music project</label><select id="youtube-metadata-project"><option value="">Choose a project</option></select></div>
+        <div><label for="youtube-metadata-mix">Audio mix</label><select id="youtube-metadata-mix"><option value="">Choose a mix</option></select></div>
+        <div><label for="youtube-metadata-source">Completed compilation MP4</label><select id="youtube-metadata-source"><option value="">Choose a compilation</option></select></div>
+      </div>
+      <button id="youtube-metadata-generate" type="button">Generate metadata from saved profile</button>
+      <label for="youtube-metadata-title">Generated title</label><input id="youtube-metadata-title" maxlength="100">
+      <label for="youtube-metadata-description">Generated description and chapters</label><textarea id="youtube-metadata-description" maxlength="5000"></textarea>
+      <label for="youtube-metadata-tags">Generated tags</label><input id="youtube-metadata-tags" maxlength="500">
+      <pre id="youtube-chapter-preview" class="chapter-preview" aria-label="Chapter preview"></pre>
+      <div class="track-actions"><button id="youtube-metadata-approve" type="button" disabled>Approve metadata</button><button id="youtube-metadata-use" class="secondary" type="button" disabled>Use in Private Upload</button></div>
+      <p id="youtube-metadata-status" role="status" aria-live="polite">Select a project, mix and compilation to generate metadata.</p>
+    </section>
+
     <section class="youtube-upload-section" aria-labelledby="youtube-upload-heading">
       <p class="eyebrow">EXPLICIT PRIVATE TRANSFER</p>
       <h2 id="youtube-upload-heading">YouTube Uploads</h2>

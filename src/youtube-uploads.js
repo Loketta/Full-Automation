@@ -65,6 +65,7 @@ export class YouTubeUploadService {
     }
     return items.sort((a, b) => a.filename.localeCompare(b.filename));
   }
+  async describeSource(filename) { const source = await this.#inspectSource(filename); return { filename, size: source.size, duration: source.duration, fingerprint: source.fingerprint }; }
   async plan(input) {
     if (this.safetyBlock) throw new UploadConflictError(this.safetyBlock);
     const metadata = validateMetadata(input); const source = await this.#inspectSource(input.filename);

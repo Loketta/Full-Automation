@@ -161,6 +161,13 @@ export class YouTubeConnectionService {
     };
   }
 
+  async getVerifiedReadContext() {
+    const status = await this.verify();
+    if (!status.connected || !this.connection) throw new YouTubeAuthorizationError(status.message || "Reconnect and verify the YouTube channel before importing metadata.");
+    const client = this.#authorizedClient();
+    return { channel: structuredClone(this.connection.channel), youtube: this.youtubeFactory(client) };
+  }
+
   #authorizedClient() {
     const client = this.oauthFactory(); client.setCredentials({ refresh_token: this.connection.refreshToken });
     client.on?.("tokens", (tokens) => {

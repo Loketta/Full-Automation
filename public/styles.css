@@ -123,6 +123,10 @@ select { display: block; margin-top: .45rem; padding: .55rem .7rem; border: 1px 
 .youtube-upload-record { padding: .85rem; border: 1px solid #3d4664; border-radius: 10px; background: #0d101a; }
 .youtube-upload-record p { margin: .35rem 0; overflow-wrap: anywhere; }
 .youtube-upload-record progress { width: 100%; }
+.youtube-metadata-section { margin-top: 3rem; }
+.youtube-metadata-section textarea { min-height: 110px; }
+.youtube-metadata-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; margin: 1rem 0; }
+.chapter-preview { white-space: pre-wrap; padding: .8rem; border: 1px solid #3d4664; border-radius: 8px; background: #0d101a; min-height: 3rem; }
 @media (min-width: 900px) { .projects-section { width: min(1120px, calc(100vw - 3rem)); margin-left: 50%; transform: translateX(-50%); } }
-@media (max-width: 760px) { .project-workspace { grid-template-columns: 1fr; } .track-overview { position: static; max-height: none; } .track-overview-scroll { max-height: 55vh; } }
+@media (max-width: 760px) { .project-workspace, .youtube-metadata-grid { grid-template-columns: 1fr; } .track-overview { position: static; max-height: none; } .track-overview-scroll { max-height: 55vh; } }
 @media (max-width: 540px) { .title-row { align-items: stretch; flex-direction: column; } .library-heading-row { align-items: flex-start; } }

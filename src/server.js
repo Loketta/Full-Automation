@@ -13,6 +13,7 @@ import { ProjectPlanService } from "./project-plans.js";
 import { CompilationVideoService } from "./compilation-video.js";
 import { YouTubeConnectionService } from "./youtube.js";
 import { YouTubeUploadService, YouTubeUploadStore } from "./youtube-uploads.js";
+import { YouTubeMetadataService, YouTubeMetadataStore } from "./youtube-metadata.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const port = Number.parseInt(process.env.PORT ?? "3000", 10);
@@ -47,6 +48,7 @@ try {
   const compilationVideoService = new CompilationVideoService(outputDirectory, {
     ffmpeg: process.env.FFMPEG_PATH || "ffmpeg",
     ffprobe: process.env.FFPROBE_PATH || "ffprobe",
+    mixStore,
   });
   const compilationVideoStatus = await compilationVideoService.initialize();
   if (!compilationVideoStatus.available) console.warn(compilationVideoStatus.error);
@@ -60,6 +62,9 @@ try {
   const youtubeUploadStore = new YouTubeUploadStore(outputDirectory, process.env.YOUTUBE_OAUTH_CLIENT_SECRET);
   const youtubeUploadService = new YouTubeUploadService(outputDirectory, youtubeService, youtubeUploadStore, { ffprobe: process.env.FFPROBE_PATH || "ffprobe" });
   await youtubeUploadService.initialize();
+  const youtubeMetadataStore = new YouTubeMetadataStore(outputDirectory);
+  const youtubeMetadataService = new YouTubeMetadataService({ connection: youtubeService, store: youtubeMetadataStore, projects, library, mixStore, mixService, uploadService: youtubeUploadService, compilationVideoService });
+  await youtubeMetadataService.initialize();
   const app = createApp({
     client,
     library,
@@ -72,6 +77,7 @@ try {
     compilationVideoService,
     youtubeService,
     youtubeUploadService,
+    youtubeMetadataService,
     startupGenerationBlock: replacementRecovery.pending ? {
       blocked: true,
       outcomeUncertain: true,

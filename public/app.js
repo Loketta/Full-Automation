@@ -77,6 +77,23 @@ const youtubeUploadPlanButton = document.querySelector("#youtube-upload-plan");
 const youtubeUploadPlanDetails = document.querySelector("#youtube-upload-plan-details");
 const youtubeUploadStatus = document.querySelector("#youtube-upload-status");
 const youtubeUploadRecords = document.querySelector("#youtube-upload-records");
+const youtubeStyleImport = document.querySelector("#youtube-style-import");
+const youtubeStyleRefresh = document.querySelector("#youtube-style-refresh");
+const youtubeStyleSave = document.querySelector("#youtube-style-save");
+const youtubeStyleStatus = document.querySelector("#youtube-style-status");
+const youtubeStyleSources = document.querySelector("#youtube-style-sources");
+const youtubeStyleFields = { titleTemplate: document.querySelector("#youtube-style-title-template"), introduction: document.querySelector("#youtube-style-introduction"), reusableText: document.querySelector("#youtube-style-reusable"), footer: document.querySelector("#youtube-style-footer"), links: document.querySelector("#youtube-style-links"), genreVocabulary: document.querySelector("#youtube-style-genres"), durationTerminology: document.querySelector("#youtube-style-duration-terms"), tags: document.querySelector("#youtube-style-tags"), hashtags: document.querySelector("#youtube-style-hashtags"), thumbnailBranding: document.querySelector("#youtube-style-thumbnail") };
+const youtubeMetadataProject = document.querySelector("#youtube-metadata-project");
+const youtubeMetadataMix = document.querySelector("#youtube-metadata-mix");
+const youtubeMetadataSource = document.querySelector("#youtube-metadata-source");
+const youtubeMetadataGenerate = document.querySelector("#youtube-metadata-generate");
+const youtubeMetadataTitle = document.querySelector("#youtube-metadata-title");
+const youtubeMetadataDescription = document.querySelector("#youtube-metadata-description");
+const youtubeMetadataTags = document.querySelector("#youtube-metadata-tags");
+const youtubeChapterPreview = document.querySelector("#youtube-chapter-preview");
+const youtubeMetadataApprove = document.querySelector("#youtube-metadata-approve");
+const youtubeMetadataUse = document.querySelector("#youtube-metadata-use");
+const youtubeMetadataStatus = document.querySelector("#youtube-metadata-status");
 let projects = [];
 let libraryTracks = [];
 let mixes = [];
@@ -95,6 +112,7 @@ let approvedCompilationPlan;
 let youtubeAuthPoll;
 let approvedYouTubeUploadPlan;
 let youtubeUploadPoll;
+let generatedYouTubeMetadata;
 
 player.volume = Number(volume.value);
 volume.addEventListener("input", () => {
@@ -148,6 +166,7 @@ loadMixes();
 loadCompilationSources();
 loadYouTubeConnection();
 loadYouTubeUploads();
+loadYouTubeMetadata();
 
 compilationRefresh.addEventListener("click", loadCompilationSources);
 for (const input of [compilationMaster, compilationAsset, compilationTitle]) input.addEventListener("input", invalidateCompilationPlan);
@@ -155,6 +174,13 @@ compilationPlanButton.addEventListener("click", reviewCompilationPlan);
 youtubeConnect.addEventListener("click", connectYouTube);
 youtubeDisconnect.addEventListener("click", disconnectYouTube);
 youtubeUploadPlanButton.addEventListener("click", reviewYouTubeUploadPlan);
+youtubeStyleImport.addEventListener("click", importYouTubeStyle);
+youtubeStyleRefresh.addEventListener("click", importYouTubeStyle);
+youtubeStyleSave.addEventListener("click", saveYouTubeStyle);
+youtubeMetadataGenerate.addEventListener("click", generateYouTubeMetadata);
+youtubeMetadataApprove.addEventListener("click", approveYouTubeMetadata);
+youtubeMetadataUse.addEventListener("click", useYouTubeMetadata);
+for (const field of [youtubeMetadataProject, youtubeMetadataMix, youtubeMetadataSource]) field.addEventListener("input", invalidateYouTubeMetadata);
 for (const input of [youtubeUploadSource, youtubeUploadTitle, youtubeUploadDescription, youtubeUploadTags]) input.addEventListener("input", () => { approvedYouTubeUploadPlan = undefined; youtubeUploadPlanDetails.replaceChildren(); });
 window.addEventListener("message", (event) => {
   if (event.origin === window.location.origin && event.data?.type === "youtube-oauth-complete") {
@@ -592,6 +618,7 @@ async function loadProjects(selectedId = projectSelect.value) {
   try {
     const data = await apiJson("/api/projects");
     projects = data.projects;
+    refreshYouTubeMetadataSelectors();
     projectSelect.replaceChildren(new Option("Choose a project", ""));
     for (const project of projects) projectSelect.append(new Option(project.name, project.id));
     const nextId = projects.some((project) => project.id === selectedId) ? selectedId : "";
@@ -1041,6 +1068,7 @@ async function loadMixes(selectedId = currentMixId) {
   try {
     const data = await apiJson("/api/mixes");
     mixes = data.mixes;
+    refreshYouTubeMetadataSelectors();
     mixSelect.replaceChildren(new Option("New mix", ""));
     for (const mix of mixes) mixSelect.append(new Option(mix.title, mix.id));
     if (selectedId && mixes.some((mix) => mix.id === selectedId)) {
@@ -1356,12 +1384,72 @@ async function loadYouTubeUploads() {
     const data = await apiJson("/api/youtube/uploads");
     const selected = youtubeUploadSource.value;
     youtubeUploadSource.replaceChildren(new Option("Choose a completed compilation", ""), ...data.sources.map((source) => new Option(`${source.filename} — ${formatUploadBytes(source.size)}`, source.filename)));
+    const metadataSelected = youtubeMetadataSource.value;
+    youtubeMetadataSource.replaceChildren(new Option("Choose a compilation", ""), ...data.sources.map((source) => new Option(source.filename, source.filename)));
+    if (data.sources.some((source) => source.filename === metadataSelected)) youtubeMetadataSource.value = metadataSelected;
     if (data.sources.some((source) => source.filename === selected)) youtubeUploadSource.value = selected;
     renderYouTubeUploadRecords(data.records);
     youtubeUploadStatus.textContent = data.status.blocked ? data.status.message : data.status.active ? "A private YouTube upload is active. Progress updates automatically." : `${data.sources.length} completed compilation(s) available. No upload starts without plan review and confirmation.`;
     clearInterval(youtubeUploadPoll);
     if (data.status.active) youtubeUploadPoll = setInterval(loadYouTubeUploads, 1500);
   } catch (error) { youtubeUploadStatus.textContent = error.message; }
+}
+
+async function loadYouTubeMetadata() {
+  try { const data = await apiJson("/api/youtube/metadata"); renderYouTubeStyle(data); refreshYouTubeMetadataSelectors(); }
+  catch (error) { youtubeStyleStatus.textContent = error.message; }
+}
+
+function renderYouTubeStyle(data) {
+  const profile = data.profile;
+  if (!profile) { youtubeStyleStatus.textContent = "No channel style profile saved. Import the authorized Beyond the Blackwall channel or enter a profile manually."; return; }
+  for (const [key, field] of Object.entries(youtubeStyleFields)) field.value = Array.isArray(profile[key]) ? profile[key].join(key === "links" ? "\n" : ", ") : profile[key] ?? "";
+  youtubeStyleStatus.textContent = `${data.importedVideos.length} channel video(s) informed the profile. ${profile.findings?.join(" ") ?? ""}`;
+  youtubeStyleSources.textContent = data.importedVideos.length ? `Source videos: ${data.importedVideos.map((video) => video.title).join(" · ")}` : "No existing videos informed this profile.";
+}
+
+function refreshYouTubeMetadataSelectors() {
+  const selectedProject = youtubeMetadataProject.value; const selectedMix = youtubeMetadataMix.value;
+  youtubeMetadataProject.replaceChildren(new Option("Choose a project", ""), ...projects.map((project) => new Option(project.name, project.id)));
+  youtubeMetadataMix.replaceChildren(new Option("Choose a mix", ""), ...mixes.map((mix) => new Option(mix.title, mix.id)));
+  if (projects.some((project) => project.id === selectedProject)) youtubeMetadataProject.value = selectedProject;
+  if (mixes.some((mix) => mix.id === selectedMix)) youtubeMetadataMix.value = selectedMix;
+}
+
+async function importYouTubeStyle() {
+  youtubeStyleImport.disabled = true; youtubeStyleRefresh.disabled = true; youtubeStyleStatus.textContent = "Reading existing uploads without modifying them…";
+  try { renderYouTubeStyle(await apiJson("/api/youtube/metadata/import", { method: "POST" })); }
+  catch (error) { youtubeStyleStatus.textContent = error.message; }
+  finally { youtubeStyleImport.disabled = false; youtubeStyleRefresh.disabled = false; }
+}
+
+async function saveYouTubeStyle() {
+  const body = {}; for (const [key, field] of Object.entries(youtubeStyleFields)) body[key] = field.value;
+  youtubeStyleSave.disabled = true;
+  try { await apiJson("/api/youtube/metadata/profile", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); await loadYouTubeMetadata(); youtubeStyleStatus.textContent = "Style profile saved locally."; }
+  catch (error) { youtubeStyleStatus.textContent = error.message; }
+  finally { youtubeStyleSave.disabled = false; }
+}
+
+function invalidateYouTubeMetadata() { generatedYouTubeMetadata = undefined; youtubeMetadataApprove.disabled = true; youtubeMetadataUse.disabled = true; youtubeMetadataStatus.textContent = "Selection changed. Generate metadata again before approval."; }
+
+async function generateYouTubeMetadata() {
+  invalidateYouTubeMetadata(); youtubeMetadataGenerate.disabled = true; youtubeMetadataStatus.textContent = "Building chapters from the actual mix timeline…";
+  try {
+    const data = await apiJson("/api/youtube/metadata/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectId: youtubeMetadataProject.value, mixId: youtubeMetadataMix.value, sourceFilename: youtubeMetadataSource.value }) });
+    generatedYouTubeMetadata = data.metadata; youtubeMetadataTitle.value = data.metadata.title; youtubeMetadataDescription.value = data.metadata.description; youtubeMetadataTags.value = data.metadata.tags.join(", "); youtubeChapterPreview.textContent = data.metadata.chapters; youtubeMetadataApprove.disabled = false; youtubeMetadataUse.disabled = false; youtubeMetadataStatus.textContent = "Metadata generated locally. Review and edit it before approval or use.";
+  } catch (error) { youtubeMetadataStatus.textContent = error.message; }
+  finally { youtubeMetadataGenerate.disabled = false; }
+}
+
+async function approveYouTubeMetadata() {
+  if (!generatedYouTubeMetadata) return;
+  try { await apiJson("/api/youtube/metadata/approve", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectId: generatedYouTubeMetadata.projectId, mixId: generatedYouTubeMetadata.mixId, sourceFilename: generatedYouTubeMetadata.source.filename, inputSnapshot: generatedYouTubeMetadata.inputSnapshot, title: youtubeMetadataTitle.value, description: youtubeMetadataDescription.value, tags: youtubeMetadataTags.value }) }); youtubeMetadataStatus.textContent = "Approved metadata saved for this exact project, mix and source fingerprint."; }
+  catch (error) { youtubeMetadataStatus.textContent = error.message; }
+}
+
+function useYouTubeMetadata() {
+  if (!generatedYouTubeMetadata) return; youtubeUploadSource.value = generatedYouTubeMetadata.source.filename; youtubeUploadTitle.value = youtubeMetadataTitle.value; youtubeUploadDescription.value = youtubeMetadataDescription.value; youtubeUploadTags.value = youtubeMetadataTags.value; approvedYouTubeUploadPlan = undefined; youtubeUploadPlanDetails.replaceChildren(); youtubeMetadataStatus.textContent = "Copied to the Private Upload form. Upload still requires its normal review and explicit confirmation.";
 }
 
 function renderYouTubeUploadRecords(records) {

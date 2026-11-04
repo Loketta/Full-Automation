@@ -10,7 +10,7 @@ import { VIDEO_EXPORTS_DIRECTORY } from "./video.js";
 import { MIXES_DIRECTORY } from "./mixes.js";
 import { COMPILATION_VIDEOS_DIRECTORY } from "./compilation-video.js";
 
-export function createApp({ client, library, projects, projectPlans, batches, videoService, mixStore, mixService, compilationVideoService, youtubeService, youtubeUploadService, outputDirectory, publicDirectory, logger = console, apiKey = "", startupGenerationBlock }) {
+export function createApp({ client, library, projects, projectPlans, batches, videoService, mixStore, mixService, compilationVideoService, youtubeService, youtubeUploadService, youtubeMetadataService, outputDirectory, publicDirectory, logger = console, apiKey = "", startupGenerationBlock }) {
   const app = express();
   let generationInProgress = false;
   const batchCoordinator = batches ? new BatchCoordinator({
@@ -213,6 +213,26 @@ export function createApp({ client, library, projects, projectPlans, batches, vi
       if (!isSameOriginRequest(request)) return response.status(403).json({ error: "YouTube upload actions are allowed only from this local application." });
       try { return response.status(202).json({ upload: await youtubeUploadService.resume(request.params.uploadId) }); }
       catch (error) { return sendYouTubeUploadError(response, error, logger); }
+    });
+  }
+
+  if (youtubeMetadataService) {
+    app.get("/api/youtube/metadata", (_request, response) => response.json(youtubeMetadataService.state()));
+    app.post("/api/youtube/metadata/import", async (request, response) => {
+      if (!isSameOriginRequest(request)) return response.status(403).json({ error: "YouTube metadata actions are allowed only from this local application." });
+      try { return response.json(await youtubeMetadataService.importChannel()); } catch (error) { return sendYouTubeUploadError(response, error, logger); }
+    });
+    app.put("/api/youtube/metadata/profile", async (request, response) => {
+      if (!isSameOriginRequest(request)) return response.status(403).json({ error: "YouTube metadata actions are allowed only from this local application." });
+      try { return response.json({ profile: await youtubeMetadataService.saveProfile(request.body ?? {}) }); } catch (error) { return sendYouTubeUploadError(response, error, logger); }
+    });
+    app.post("/api/youtube/metadata/generate", async (request, response) => {
+      if (!isSameOriginRequest(request)) return response.status(403).json({ error: "YouTube metadata actions are allowed only from this local application." });
+      try { return response.json({ metadata: await youtubeMetadataService.generate(request.body ?? {}) }); } catch (error) { return sendYouTubeUploadError(response, error, logger); }
+    });
+    app.post("/api/youtube/metadata/approve", async (request, response) => {
+      if (!isSameOriginRequest(request)) return response.status(403).json({ error: "YouTube metadata actions are allowed only from this local application." });
+      try { return response.json({ approval: await youtubeMetadataService.approve(request.body ?? {}) }); } catch (error) { return sendYouTubeUploadError(response, error, logger); }
     });
   }
 

@@ -168,6 +168,18 @@ After a restart, an upload with a saved session is marked **Interrupted** and is
 
 The first upload of a newly configured YouTube API project may remain private because Google applies additional restrictions to unverified API projects. Upload records deliberately prevent uploading the same source fingerprint to the same channel again; this milestone does not provide a duplicate-upload override. It also does not implement editing, replacing, deleting, scheduling, or making videos public.
 
+### Beyond the Blackwall metadata
+
+The **YouTube Metadata** section is restricted to the verified Beyond the Blackwall channel ID `UCXO7g--zW3kReNXhcZNu_vg`. **Import Channel Style** and **Refresh Channel Style** read the authorized channel's uploads playlist, follow every playlist page, and retrieve video snippets and ISO 8601 durations in batches. This follows Google's documented [uploads-playlist workflow](https://developers.google.com/youtube/data/sample_requests#uploaded-videos-and-system-generated-playlists), [pagination model](https://developers.google.com/youtube/data/guides/implementation/pagination), and [video resource fields](https://developers.google.com/youtube/data/reference/rest/v3/videos). Import is read-only and never calls a video update, insert, or delete method.
+
+The initial style analysis is deterministic. It records recurring title suffixes, repeated first/last description sections, tags, hashtags, links, genre terms, thumbnail-host references, and the exact existing video IDs that informed the result. A convention must recur before it is treated as channel style; one video is explicitly reported as insufficient evidence. Edit and save the title template, reusable sections, links, vocabulary, tags, hashtags, and thumbnail reference locally. The ignored `output/youtube-channel-style.json` file stores imports, the editable profile, and approved metadata atomically; it never contains OAuth credentials.
+
+To create metadata, select a Music Project, an Audio Mix, and a completed compilation MP4. New compilation renders atomically record a provenance chain from the MP4 fingerprint to its WAV master, originating mix export snapshot, and retained crossfade timeline. Metadata generation requires that exact chain and rejects an independently selected or modified MP4. Track names come from the project's real accepted planned tracks. The generator validates that the timeline begins at zero, remains within the completed video's duration, matches its recorded render duration, and leaves at least ten seconds for the final chapter. YouTube requires a first timestamp at 00:00, at least three timestamps in ascending order, and chapters of at least ten seconds; the application enforces those [official chapter requirements](https://support.google.com/youtube/answer/9884579).
+
+Generated fields remain editable. **Approve metadata** persists the reviewed title, description and tags against a snapshot of the exact project, mix, style profile, source fingerprint, and chapter timeline. Any relevant change requires regeneration and approval. **Use in Private Upload** only copies the fields into Milestone 7B's form; its independent source/channel snapshot, Private-only policy, duplicate protection, resumable transfer and explicit upload confirmation still apply. Importing, generating, saving, approving, or copying metadata never starts an upload.
+
+Limitations: legacy mix or compilation-video exports do not contain enough durable evidence to prove their relationship. They remain available for playback, download, manual metadata and manual Private upload, but automated chapters fail clearly. Safely re-render the WAV and compilation video with the current application to create authoritative provenance; existing media is never overwritten or deleted. There is no AI-generated copy, thumbnail image analysis, channel modification, or automatic upload.
+
 ## Test offline
 
 ```powershell
@@ -195,6 +207,8 @@ Compilation-video tests cover source discovery, safe paths, probing, plan snapsh
 YouTube connection tests use mocked OAuth clients and YouTube API responses. They cover authorization scopes and state, refresh credentials, revoked access, encrypted local storage, channel identity and replacement, missing configuration, disconnect/revocation, server credential isolation, and the browser connection workflow. They require no Google account and make no YouTube API call.
 
 YouTube upload tests use a mocked resumable transport and synthetic local files. They cover private-only metadata, channel and source snapshots, bounded chunk streaming, progress, lost responses, server restart and explicit resume, expired and uncertain sessions, duplicate and concurrent upload prevention, encrypted atomic state, failure-state persistence, and the browser confirmation workflow. They create no Google upload session and perform no network request.
+
+YouTube metadata tests use mocked read-only channel, playlist and video responses. They cover channel binding, pagination, deterministic style extraction, insufficient history, atomic profile persistence, crossfade-aware chapter timing and validation, title/description/tag limits, approval invalidation, upload-form handoff, and isolation from upload and Lyria clients.
 
 ## GitHub Actions tests
 

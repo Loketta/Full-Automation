@@ -56,6 +56,15 @@ test("lists designated inputs, plans with durations, rejects stale snapshots, an
   assert.equal(next.outputFilename, "industrial-afterhours-2.mp4");
 });
 
+test("completed exports persist MP4-to-WAV-to-mix provenance", async (t) => {
+  const timeline = [{ trackId: "a", startSeconds: 0, duration: 1900 }, { trackId: "b", startSeconds: 1892, duration: 1816 }];
+  const mixStore = { list: () => [{ id: "mix-1", exports: [{ filename: "master.wav", snapshot: "mix-snapshot", timeline }] }] };
+  const values = await fixture(t, { mixStore }); const plan = await values.service.plan({ masterFilename: "master.wav", assetFilename: "harbour.mp4", title: "Provenance" });
+  await values.service.render({ masterFilename: "master.wav", assetFilename: "harbour.mp4", outputFilename: plan.outputFilename, snapshot: plan.snapshot });
+  const record = values.service.getExportProvenance("provenance.mp4"); assert.equal(record.masterFilename, "master.wav"); assert.equal(record.mixId, "mix-1"); assert.equal(record.mixExportSnapshot, "mix-snapshot"); assert.deepEqual(record.timeline, timeline); assert.match(record.outputFingerprint, /^[a-f0-9]{64}$/);
+  const restarted = new CompilationVideoService(values.output, { runner: values.runner, probe: async () => ({}), mixStore }); await restarted.initialize(); assert.equal(restarted.getExportProvenance("provenance.mp4").mixId, "mix-1");
+});
+
 test("changing either approved source invalidates its snapshot before FFmpeg starts", async (t) => {
   let calls = 0;
   const values = await fixture(t, { runner: { async check() {}, async run() { calls += 1; } } });

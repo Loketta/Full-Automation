@@ -42,6 +42,10 @@ export class ProjectStore {
     return structuredClone(this.data.projects);
   }
 
+  get(projectId) {
+    return structuredClone(this.#findProject(projectId));
+  }
+
   getTrack(projectId, trackId) {
     const project = this.#findProject(projectId);
     const track = project.tracks.find((candidate) => candidate.id === trackId);

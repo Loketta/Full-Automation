@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { mkdir, mkdtemp, readFile, rename as fsRename, rm, writeFile } from "node:fs/promises";
 import { TrackLibrary } from "../src/library.js";
-import { assertGenerationSnapshot, MAX_IMPORT_BYTES, ProjectStore, ProjectValidationError, validateImport } from "../src/projects.js";
+import { assertGenerationSnapshot, MAX_IMPORT_BYTES, ProjectNotFoundError, ProjectStore, ProjectValidationError, validateImport } from "../src/projects.js";
 
 async function fixture(t) {
   const root = await mkdtemp(path.join(process.cwd(), ".test-tmp-projects-"));
@@ -46,6 +46,11 @@ test("creates projects and preserves edits across restart", async (t) => {
   assert.equal(projects[0].theme, "Updated instrumental theme");
   assert.equal(projects[0].tracks[0].title, "Track A Revised");
   assert.equal(projects[0].tracks[0].status, "Pending");
+});
+
+test("get returns a defensive project copy and uses the established not-found error", async (t) => {
+  const { output, dependencies } = await fixture(t); const store = new ProjectStore(output, dependencies); await store.initialize(); const created = await store.create({ name: "Read only", theme: "A persistent instrumental theme" });
+  const copy = store.get(created.id); copy.name = "Mutated elsewhere"; assert.equal(store.get(created.id).name, "Read only"); assert.throws(() => store.get("missing"), ProjectNotFoundError);
 });
 
 test("imports versioned JSON offline and preserves track order", async (t) => {

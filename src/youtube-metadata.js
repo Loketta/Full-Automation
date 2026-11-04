@@ -113,8 +113,13 @@ export class YouTubeMetadataService {
     if (linkageDiagnostics.missingRecordings.length) chapterWarning = `${chapterWarning} Project linkage is unverified for ${formatMissingRecordings(linkageDiagnostics.missingRecordings)} Metadata was generated without chapters.`.trim();
     const missing = tracks.filter((track) => !track.projectTrack).map((track) => track.title);
     if (missing.length) throw new MetadataValidationError(`The selected mix contains recordings not linked to the selected project: ${missing.join(", ")}.`);
-    const notAccepted = evidenceTrackIds.filter((id) => this.library?.get(id)?.reviewStatus !== "Keep").map((id) => projectTracks.get(id)?.title ?? id);
-    if (notAccepted.length) throw new MetadataValidationError(`Every compilation chapter must use an accepted recording. Review these tracks first: ${notAccepted.join(", ")}.`);
+    const reviewEvidence = inspectRecordingReviewStates(evidenceTrackIds, this.library);
+    if (authoritativeTimeline) {
+      const notAccepted = reviewEvidence.filter((item) => item.state !== "accepted"); if (notAccepted.length) throw new MetadataValidationError(`Every verified chapter must use an accepted recording. Review these tracks first: ${formatReviewEvidence(notAccepted)}.`);
+    } else {
+      const rejected = reviewEvidence.filter((item) => item.state === "rejected"); if (rejected.length) throw new MetadataValidationError(`The selected mix contains explicitly rejected recordings: ${formatReviewEvidence(rejected)}. Choose a mix without rejected recordings or change their review status explicitly.`);
+      const incomplete = reviewEvidence.filter((item) => item.state === "missing" || item.state === "unreviewed"); if (incomplete.length) chapterWarning = `${chapterWarning} Recording review state is incomplete: ${formatReviewEvidence(incomplete)}. This chapterless metadata does not treat them as accepted.`.trim();
+    }
     const timeline = tracks.map((track) => ({ trackId: track.id, title: track.projectTrack.title, startSeconds: track.startSeconds }));
     const theme = project.theme?.trim(); if (!theme) throw new MetadataValidationError("The selected project has no theme information.");
     const selectedGenres = selectGenreProfiles(project, profile.genreProfiles); const selectedGenreNames = selectedGenres.map((item) => item.genre); const genre = genreLabel(selectedGenres); const scene = groundedScene(project);
@@ -127,8 +132,8 @@ export class YouTubeMetadataService {
     const sections = [introduction, `${style}. ${listening}`.trim(), chapters ? `Tracklist\n${chapters}` : "", profile.reusableText, profile.links.join("\n"), profile.footer, hashtags].map((value) => String(value ?? "").trim()).filter(Boolean);
     const description = sections.join("\n\n"); if (description.length > 5000) throw new MetadataValidationError("Generated description exceeds YouTube's 5,000-character limit. Shorten the saved profile text.");
     const tags = [...new Set([...(profile.tags ?? []), ...(profile.genreVocabulary ?? []), ...profileKeywords(selectedGenres), ...wordsFromTheme(theme)])].filter(Boolean); while (tags.join(",").length > 500) tags.pop();
-    const inputSnapshot = metadataSnapshot({ project, mix, source, provenance, linkageDiagnostics, timeline, profile });
-    return { kind: "compilation", projectId, mixId, source, title, description, tags, hashtags: [...new Set([...(profile.hashtags ?? []), ...profileHashtags(selectedGenres)])].slice(0, 6), chapters, timeline, provenanceStatus: chapters ? "verified" : (provenance?.provenanceStatus ?? "incomplete"), linkageDiagnostics, selectedGenreProfiles: selectedGenreNames, warnings: [chapterWarning, renderedIntroduction.warning, selectedGenres.length ? "" : "No reviewed genre profile matched this project; generic instrumental wording was used."].filter(Boolean), channelId: BEYOND_BLACKWALL_CHANNEL_ID, inputSnapshot };
+    const inputSnapshot = metadataSnapshot({ project, mix, source, provenance, linkageDiagnostics, reviewEvidence, timeline, profile });
+    return { kind: "compilation", projectId, mixId, source, title, description, tags, hashtags: [...new Set([...(profile.hashtags ?? []), ...profileHashtags(selectedGenres)])].slice(0, 6), chapters, timeline, provenanceStatus: chapters ? "verified" : (provenance?.provenanceStatus ?? "incomplete"), linkageDiagnostics, reviewEvidence, selectedGenreProfiles: selectedGenreNames, warnings: [chapterWarning, renderedIntroduction.warning, selectedGenres.length ? "" : "No reviewed genre profile matched this project; generic instrumental wording was used."].filter(Boolean), channelId: BEYOND_BLACKWALL_CHANNEL_ID, inputSnapshot };
   }
 
   async diagnoseProjectMixAssociation({ projectId, mixId, sourceFilename }) {
@@ -221,6 +226,8 @@ export function diagnoseProjectMixLinks({ project, mix, recordingIds = mix?.trac
 }
 
 function formatMissingRecordings(items) { return items.map((item) => `${item.id}${item.title ? ` (“${item.title}”)` : ""}: ${item.reason}`).join(" "); }
+function inspectRecordingReviewStates(ids, library) { return ids.map((id) => { let recording; try { recording = library?.get(id); } catch { return { id, state: "missing", reviewStatus: undefined }; } const reviewStatus = recording?.reviewStatus; const state = reviewStatus === "Keep" ? "accepted" : reviewStatus === "Reject" ? "rejected" : "unreviewed"; return { id, title: recording?.title, state, reviewStatus, projectId: recording?.projectId, plannedTrackId: recording?.plannedTrackId }; }); }
+function formatReviewEvidence(items) { return items.map((item) => `${item.id}${item.title ? ` (“${item.title}”)` : ""} [${item.state === "missing" ? "missing library record" : item.state === "unreviewed" ? `review status ${item.reviewStatus ?? "unknown"}` : item.state}]`).join(", "); }
 
 function normalizeVideo(item) { const snippet = item.snippet ?? {}; return { id: item.id, title: snippet.title ?? "", description: snippet.description ?? "", tags: Array.isArray(snippet.tags) ? snippet.tags : [], thumbnailUrl: snippet.thumbnails?.maxres?.url ?? snippet.thumbnails?.high?.url ?? snippet.thumbnails?.default?.url, publishedAt: snippet.publishedAt, duration: parseIsoDuration(item.contentDetails?.duration) }; }
 function publicImportedVideo(video) { return { id: video.id, title: video.title, thumbnailUrl: video.thumbnailUrl, publishedAt: video.publishedAt, duration: video.duration }; }

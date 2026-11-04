@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import path from "node:path";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { validateAiAnalysis } from "./youtube-style-ai.js";
+import { buildChannelAnalysisExport, validateChannelAnalysisProposal } from "./youtube-style-profile.js";
 
 export const BEYOND_BLACKWALL_CHANNEL_ID = "UCXO7g--zW3kReNXhcZNu_vg";
 const DATA_FILENAME = "youtube-channel-style.json";
@@ -20,17 +20,23 @@ export class YouTubeMetadataStore {
 }
 
 export class YouTubeMetadataService {
-  constructor({ connection, store, projects, library, mixStore, mixService, uploadService, compilationVideoService, aiService, now = () => new Date() }) { Object.assign(this, { connection, store, projects, library, mixStore, mixService, uploadService, compilationVideoService, aiService, now }); }
+  constructor({ connection, store, projects, library, mixStore, mixService, uploadService, compilationVideoService, now = () => new Date(), randomUUID = crypto.randomUUID }) { Object.assign(this, { connection, store, projects, library, mixStore, mixService, uploadService, compilationVideoService, now, randomUUID }); }
   initialize() { return this.store.initialize(); }
-  state() { const data = this.store.get(); return { profile: data.profile, importedVideos: data.imports.map(publicImportedVideo), approvals: data.approvals, aiProposal: data.aiProposal }; }
-  planAiAnalysis() { if (!this.aiService) throw new MetadataValidationError("AI channel analysis is not configured."); return this.aiService.plan(); }
-  analyseWithAi(snapshot) { if (!this.aiService) throw new MetadataValidationError("AI channel analysis is not configured."); return this.aiService.analyse(snapshot); }
-  async acceptAiProposal(id) {
-    const data = this.store.get(); const proposal = data.aiProposal; if (!proposal || proposal.id !== id) throw new MetadataConflictError("The AI profile proposal is missing or changed. Run and review a new analysis.");
-    validateAiAnalysis({ report: proposal.report, proposedProfile: proposal.proposedProfile }, new Set(data.imports.map((video) => video.id)));
+  state() { const data = this.store.get(); return { profile: data.profile, importedVideos: data.imports.map(publicImportedVideo), approvals: data.approvals, analysisProposal: data.analysisProposal }; }
+  exportChannelAnalysis() { return buildChannelAnalysisExport(this.store.get(), this.now().toISOString()); }
+  async importChannelAnalysis(input) {
+    const data = this.store.get(); const validated = validateChannelAnalysisProposal(input, data.imports);
+    const proposal = { ...validated, id: this.randomUUID(), importedAt: this.now().toISOString() };
+    await this.store.update((next) => { next.analysisProposal = proposal; });
+    return proposal;
+  }
+  async acceptChannelAnalysis(id) {
+    const data = this.store.get(); const proposal = data.analysisProposal; if (!proposal || proposal.id !== id) throw new MetadataConflictError("The channel-style proposal is missing or changed. Import and review it again.");
+    validateChannelAnalysisProposal({ version: proposal.version, channelId: proposal.channelId, datasetFingerprint: proposal.datasetFingerprint, report: proposal.report, proposedProfile: proposal.proposedProfile }, data.imports);
     const proposed = proposal.proposedProfile; const current = data.profile ?? {};
     const profile = validateProfile({ ...current, titleTemplate: proposed.compilationTitleTemplate, compilationTitleTemplate: proposed.compilationTitleTemplate, individualTrackTitleTemplate: proposed.individualTrackTitleTemplate, introduction: proposed.universalBranding.introduction, footer: proposed.universalBranding.footer, reusableText: proposed.universalBranding.callsToAction.join("\n"), links: proposed.universalBranding.recurringLinks, genreVocabulary: proposed.genreProfiles.flatMap((item) => item.keywords), tags: proposed.universalTags, hashtags: proposed.universalHashtags, genreProfiles: proposed.genreProfiles });
-    await this.store.update((next) => { next.profile = { ...profile, informedByVideoIds: proposal.sourceVideoIds, findings: proposal.report.observedConventions.map((item) => `${item.category}: ${item.pattern}`), aiReport: proposal.report, aiProposalId: proposal.id, userEdited: true, updatedAt: this.now().toISOString() }; next.aiProposal = undefined; }); return this.state().profile;
+    const evidenceIds = [...new Set(proposal.report.observedConventions.flatMap((item) => item.sourceVideoIds))];
+    await this.store.update((next) => { next.profile = { ...profile, informedByVideoIds: evidenceIds, findings: proposal.report.observedConventions.map((item) => `${item.category}: ${item.pattern}`), analysisReport: proposal.report, analysisProposalId: proposal.id, userEdited: true, updatedAt: this.now().toISOString() }; next.analysisProposal = undefined; }); return this.state().profile;
   }
 
   async importChannel() {

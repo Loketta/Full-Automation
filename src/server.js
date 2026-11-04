@@ -14,7 +14,6 @@ import { CompilationVideoService } from "./compilation-video.js";
 import { YouTubeConnectionService } from "./youtube.js";
 import { YouTubeUploadService, YouTubeUploadStore } from "./youtube-uploads.js";
 import { YouTubeMetadataService, YouTubeMetadataStore } from "./youtube-metadata.js";
-import { YouTubeStyleAiService } from "./youtube-style-ai.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const port = Number.parseInt(process.env.PORT ?? "3000", 10);
@@ -64,8 +63,7 @@ try {
   const youtubeUploadService = new YouTubeUploadService(outputDirectory, youtubeService, youtubeUploadStore, { ffprobe: process.env.FFPROBE_PATH || "ffprobe" });
   await youtubeUploadService.initialize();
   const youtubeMetadataStore = new YouTubeMetadataStore(outputDirectory);
-  const youtubeStyleAiService = new YouTubeStyleAiService({ client, store: youtubeMetadataStore, model: process.env.YOUTUBE_STYLE_AI_MODEL || undefined, maxInputTokens: Number(process.env.YOUTUBE_STYLE_AI_MAX_INPUT_TOKENS || 100000), maxOutputTokens: Number(process.env.YOUTUBE_STYLE_AI_MAX_OUTPUT_TOKENS || 6000), inputUsdPerMillion: process.env.YOUTUBE_STYLE_AI_INPUT_USD_PER_MILLION, outputUsdPerMillion: process.env.YOUTUBE_STYLE_AI_OUTPUT_USD_PER_MILLION });
-  const youtubeMetadataService = new YouTubeMetadataService({ connection: youtubeService, store: youtubeMetadataStore, projects, library, mixStore, mixService, uploadService: youtubeUploadService, compilationVideoService, aiService: youtubeStyleAiService });
+  const youtubeMetadataService = new YouTubeMetadataService({ connection: youtubeService, store: youtubeMetadataStore, projects, library, mixStore, mixService, uploadService: youtubeUploadService, compilationVideoService });
   await youtubeMetadataService.initialize();
   const app = createApp({
     client,

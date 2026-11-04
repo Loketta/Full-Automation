@@ -12,6 +12,7 @@ import { MixAssemblyService, MixStore } from "./mixes.js";
 import { ProjectPlanService } from "./project-plans.js";
 import { CompilationVideoService } from "./compilation-video.js";
 import { YouTubeConnectionService } from "./youtube.js";
+import { YouTubeUploadService, YouTubeUploadStore } from "./youtube-uploads.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const port = Number.parseInt(process.env.PORT ?? "3000", 10);
@@ -56,6 +57,9 @@ try {
     redirectUri: process.env.YOUTUBE_OAUTH_REDIRECT_URI || `http://127.0.0.1:${port}/api/youtube/oauth/callback`,
   });
   await youtubeService.initialize();
+  const youtubeUploadStore = new YouTubeUploadStore(outputDirectory, process.env.YOUTUBE_OAUTH_CLIENT_SECRET);
+  const youtubeUploadService = new YouTubeUploadService(outputDirectory, youtubeService, youtubeUploadStore, { ffprobe: process.env.FFPROBE_PATH || "ffprobe" });
+  await youtubeUploadService.initialize();
   const app = createApp({
     client,
     library,
@@ -67,6 +71,7 @@ try {
     mixService,
     compilationVideoService,
     youtubeService,
+    youtubeUploadService,
     startupGenerationBlock: replacementRecovery.pending ? {
       blocked: true,
       outcomeUncertain: true,

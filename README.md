@@ -138,7 +138,7 @@ The visual is looped continuously and aspect-ratio fitted inside 1920 × 1080 wi
 
 ## YouTube connection setup
 
-Milestone 7A identifies and binds the exact YouTube channel authorized through Google. It does not upload, edit, delete, schedule, or publish any video. Future upload work must use the stored verified channel ID and defaults to **Private**.
+Milestone 7A identifies and binds the exact YouTube channel authorized through Google. Uploads use that stored, reverified channel identity and are always **Private**.
 
 1. In [Google Cloud Console](https://console.cloud.google.com/), create or select a project and enable **YouTube Data API v3**.
 2. Configure the OAuth consent screen. For an External app in Testing, add the Google account you will use as a test user.
@@ -157,6 +157,16 @@ Choose **Connect to YouTube** and complete Google's browser authorization. Follo
 The interface displays the authorized channel name, ID, handle, thumbnail, and connection status. Refresh authorization is stored in encrypted form at `output/youtube-credentials.enc`; the encryption key is derived from the client secret in `.env`. Access tokens, refresh tokens, and the client secret are never returned to browser JavaScript or written to logs. Disconnect requires confirmation, attempts Google revocation, and removes the local encrypted credential even if Google already revoked it. Expired or revoked access is shown as requiring reconnection.
 
 Limitation: Google states that refresh tokens for External OAuth consent screens left in **Testing** normally expire after seven days because these YouTube scopes are not basic identity scopes. The application detects that failure and asks you to reconnect. Moving an OAuth app to production can require Google's scope-verification process; keep it in Testing with an allowed test user while developing.
+
+### Private YouTube uploads
+
+The **YouTube Uploads** section lists completed compilation MP4s from the ignored `output/compilation-videos/` directory. Select a file, enter its title, optional description and comma-separated tags, and choose **Review private upload**. The review binds the exact file fingerprint and duration, metadata, and currently verified channel ID. A separate confirmation names the destination channel, source, size, duration, title, and **PRIVATE** visibility before the application creates any YouTube upload session.
+
+Uploads use Google's supported resumable protocol and bounded 8 MiB chunks, so the complete video is not loaded into memory. Progress and the authoritative uploaded-byte offset are persisted atomically in encrypted `output/youtube-upload-records.enc`; OAuth tokens are never stored in an upload record. The server hard-codes `privacyStatus: private`. The browser cannot request Public, Unlisted, scheduled, or automatic publication, and changing the source or authorized channel invalidates approval.
+
+After a restart, an upload with a saved session is marked **Interrupted** and is never resumed automatically. **Resume saved session** explicitly checks the unchanged source, reverified channel, and YouTube's authoritative session offset before sending more bytes; it does not create a replacement session. Expired sessions, completion responses without a video ID, and outcomes that cannot be reconciled stop safely. An uncertain outcome blocks new uploads until it has been investigated manually in YouTube Studio. A completed record shows the YouTube video ID and a user-clicked link; the application never opens or publishes it automatically.
+
+The first upload of a newly configured YouTube API project may remain private because Google applies additional restrictions to unverified API projects. Upload records deliberately prevent uploading the same source fingerprint to the same channel again; this milestone does not provide a duplicate-upload override. It also does not implement editing, replacing, deleting, scheduling, or making videos public.
 
 ## Test offline
 
@@ -184,6 +194,8 @@ Compilation-video tests cover source discovery, safe paths, probing, plan snapsh
 
 YouTube connection tests use mocked OAuth clients and YouTube API responses. They cover authorization scopes and state, refresh credentials, revoked access, encrypted local storage, channel identity and replacement, missing configuration, disconnect/revocation, server credential isolation, and the browser connection workflow. They require no Google account and make no YouTube API call.
 
+YouTube upload tests use a mocked resumable transport and synthetic local files. They cover private-only metadata, channel and source snapshots, bounded chunk streaming, progress, lost responses, server restart and explicit resume, expired and uncertain sessions, duplicate and concurrent upload prevention, encrypted atomic state, failure-state persistence, and the browser confirmation workflow. They create no Google upload session and perform no network request.
+
 ## GitHub Actions tests
 
 GitHub automatically runs the full offline test suite for every pull request targeting `main` and every push to `main`. The workflow uses Node.js 24, installs the locked dependencies with `npm ci`, and runs `npm test` on an Ubuntu runner.
@@ -209,4 +221,4 @@ Implementation checked against Google's official [Lyria 3.5 music generation gui
 
 ## Scope
 
-This application intentionally has no cloud deployment, scheduled generation, GitHub Actions music-generation job, YouTube upload/publishing implementation, automatic visual generation, or recurring automation. YouTube OAuth in Milestone 7A only verifies and stores a channel connection for future work; it cannot upload or modify videos. Local audio mix assembly only combines recordings that already exist in the Track Library. GitHub Actions is used only for the offline test suite.
+This application intentionally has no cloud deployment, scheduled generation, GitHub Actions music-generation job, automatic visual generation, or recurring automation. YouTube uploads are manual, explicitly confirmed, resumable, and hard-coded Private; there is no public/unlisted publishing, scheduling, background start, editing, replacement, or deletion workflow. Local audio mix assembly only combines recordings that already exist in the Track Library. GitHub Actions is used only for the offline test suite.

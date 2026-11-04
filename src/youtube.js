@@ -146,6 +146,21 @@ export class YouTubeConnectionService {
     return this.status();
   }
 
+  async getVerifiedUploadContext() {
+    const status = await this.verify();
+    if (!status.connected || !this.connection) throw new YouTubeAuthorizationError(status.message || "Reconnect and verify the YouTube channel before uploading.");
+    const client = this.#authorizedClient();
+    return {
+      channel: structuredClone(this.connection.channel),
+      getAccessToken: async () => {
+        const result = await client.getAccessToken();
+        const token = typeof result === "string" ? result : result?.token;
+        if (!token) throw new YouTubeAuthorizationError("YouTube access could not be refreshed. Reconnect before uploading.");
+        return token;
+      },
+    };
+  }
+
   #authorizedClient() {
     const client = this.oauthFactory(); client.setCredentials({ refresh_token: this.connection.refreshToken });
     client.on?.("tokens", (tokens) => {

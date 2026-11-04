@@ -48,6 +48,28 @@ test("creates, edits, orders, and persists mix drafts with future-ready transiti
   assert.deepEqual(restarted.get(mix.id).transitions, [{ fromTrackId: reordered[0], toTrackId: reordered[1], duration: 5 }]);
 });
 
+test("recovery atomically enriches only consistent incomplete export records", async (t) => {
+  const values = await fixture(t);
+  const ids = values.tracks.slice(0, 2).map((track) => track.id);
+  const first = await values.store.create({ title: "Legacy", trackIds: ids, crossfadeSeconds: 0 });
+  const second = await values.store.create({ title: "Other", trackIds: ids, crossfadeSeconds: 0 });
+  const legacy = { filename: "legacy.wav", snapshot: "original-snapshot", duration: 3700.25, evidence: { mixId: first.id } };
+  await values.store.recordExport(first.id, legacy);
+  const current = values.store.get(first.id).exports[0];
+  const timeline = [{ trackId: ids[0], title: "Track 1", startSeconds: 0, duration: 1800 }, { trackId: ids[1], title: "Track 2", startSeconds: 1800, duration: 1900.25 }];
+  await values.store.recoverExport(first.id, "legacy.wav", { filename: "legacy.wav", snapshot: "reconstructed-snapshot", duration: 3700.25, timeline, evidence: { mixId: first.id, trackIds: ids }, expectedRecord: current });
+  const enriched = values.store.get(first.id).exports[0];
+  assert.equal(enriched.snapshot, "original-snapshot");
+  assert.deepEqual(enriched.timeline, timeline);
+  assert.equal(enriched.recoveryHistory.length, 1);
+  assert.deepEqual(enriched.recoveryHistory[0].priorRecord, current);
+  await assert.rejects(() => values.store.recoverExport(first.id, "legacy.wav", { filename: "legacy.wav", snapshot: "replacement", duration: 3700.25, timeline, evidence: { mixId: first.id }, expectedRecord: enriched }), /already has a verified snapshot and timeline/i);
+  await assert.rejects(() => values.store.recoverExport(first.id, "legacy.wav", { filename: "legacy.wav", snapshot: "replacement", duration: 3700.25, timeline, evidence: { mixId: first.id }, expectedRecord: { ...enriched, snapshot: "conflicting-snapshot" } }), /changed after recovery was reviewed/i);
+  await values.store.recordExport(second.id, { filename: "legacy.wav" });
+  await assert.rejects(() => values.store.recoverExport(first.id, "legacy.wav", { filename: "legacy.wav", snapshot: "replacement", duration: 3700.25, timeline, evidence: { mixId: first.id }, expectedRecord: enriched }), /conflicting export associations/i);
+  assert.deepEqual(values.store.get(first.id).exports[0], enriched);
+});
+
 test("saved drafts preserve missing recording IDs and order while planning fails closed", async (t) => {
   const values = await fixture(t);
   const ids = [values.tracks[0].id, "missing-recording-id", values.tracks[1].id];

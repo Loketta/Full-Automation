@@ -72,6 +72,20 @@ test("diagnoses missing, duplicate and incomplete WAV provenance", async (t) => 
   const incomplete = await fixture(t, { mixStore: { list: () => [{ id: "a", exports: [{ filename: "master.wav", snapshot: "old" }] }] } }); assert.match(incomplete.service.diagnoseMasterProvenance("master.wav").message, /no retained timeline/i);
 });
 
+test("master recovery preview rejects cross-mix associations and verified exports", async (t) => {
+  const tracks = [{ id: "a", title: "Alpha", filename: "a.mp3", duration: 1850.125 }, { id: "b", title: "Beta", filename: "b.mp3", duration: 1850.125 }];
+  const mixService = { library: { get: () => ({ reviewStatus: "Keep" }) }, async preview() { return { tracks, transitions: [{ type: "concat", duration: 0 }], expectedDuration: 3700.25 }; } };
+  const mixes = [{ id: "mix", trackIds: ["a", "b"], crossfadeSeconds: 0, updatedAt: "saved", exports: [{ filename: "master.wav", snapshot: "legacy" }] }, { id: "other", exports: [{ filename: "master.wav" }] }];
+  const conflicting = await fixture(t, { mixService, mixStore: { list: () => structuredClone(mixes), get: () => structuredClone(mixes[0]) } });
+  await assert.rejects(() => conflicting.service.planMasterRecovery({ masterFilename: "master.wav", mixId: "mix" }), /conflicting export associations/i);
+  mixes.pop(); mixes[0].exports[0].timeline = [{ trackId: "a", title: "Alpha", startSeconds: 0, duration: 3700.25 }];
+  const verified = await fixture(t, { mixService, mixStore: { list: () => structuredClone(mixes), get: () => structuredClone(mixes[0]) } });
+  await assert.rejects(() => verified.service.planMasterRecovery({ masterFilename: "master.wav", mixId: "mix" }), /already has a verified snapshot and timeline/i);
+  delete mixes[0].exports[0].timeline; mixes[0].exports[0].evidence = { mixId: "different-mix" };
+  const inconsistent = await fixture(t, { mixService, mixStore: { list: () => structuredClone(mixes), get: () => structuredClone(mixes[0]) } });
+  await assert.rejects(() => inconsistent.service.planMasterRecovery({ masterFilename: "master.wav", mixId: "mix" }), /evidence conflicts/i);
+});
+
 test("recovers a WAV timeline only from matching identities, order, crossfades and duration", async (t) => {
   const tracks = [{ id: "a", title: "Alpha", filename: "a.mp3", duration: 1850.125 }, { id: "b", title: "Beta", filename: "b.mp3", duration: 1850.125 }]; let recovered;
   const mix = { id: "mix", title: "Legacy", trackIds: ["a", "b"], crossfadeSeconds: 0, updatedAt: "saved", exports: [{ filename: "master.wav", snapshot: "old" }] }; const mixStore = { list: () => [mix], get: () => structuredClone(mix), async recoverExport(_id, _filename, value) { recovered = value; mix.exports[0] = value; } }; const mixService = { library: { get: () => ({ reviewStatus: "Keep" }) }, async preview() { return { tracks, transitions: [{ type: "concat", duration: 0 }], expectedDuration: 3700.25 }; } };

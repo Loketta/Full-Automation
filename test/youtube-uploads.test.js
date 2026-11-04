@@ -107,6 +107,25 @@ test("duplicate source/channel uploads and overlapping starts are rejected", asy
   release(); await values.service.waitForIdle(); await assert.rejects(() => approvedPlan(values), /already has upload record/);
 });
 
+test("simultaneous starts atomically admit only one resumable upload session", async (t) => {
+  let releaseSession; const sessionHold = new Promise((resolve) => { releaseSession = resolve; });
+  let markSessionStarted; const sessionStarted = new Promise((resolve) => { markSessionStarted = resolve; });
+  let sessionCount = 0;
+  const transport = {
+    async createSession() { sessionCount += 1; markSessionStarted(); await sessionHold; return { sessionUrl: "https://upload.test/atomic" }; },
+    async uploadChunk() { return { status: 201, completed: true, data: { id: "atomic-one" } }; },
+    async querySession() { return { status: 308 }; },
+  };
+  const values = await fixture(t, { transport }); const plan = await approvedPlan(values);
+  const input = { filename: values.filename, title: plan.title, description: plan.description, tags: plan.tags, snapshot: plan.snapshot };
+  const results = await Promise.allSettled([values.service.start(input), values.service.start(input)]);
+  await sessionStarted;
+  assert.deepEqual(results.map((result) => result.status).sort(), ["fulfilled", "rejected"]);
+  assert.match(results.find((result) => result.status === "rejected").reason.message, /already active/);
+  assert.equal(values.service.list().length, 1); assert.equal(sessionCount, 1);
+  releaseSession(); await values.service.waitForIdle(); assert.equal(sessionCount, 1);
+});
+
 test("record persistence failure does not mutate authoritative in-memory state", async (t) => {
   let fail = false;
   const store = new YouTubeUploadStore(path.join(await mkdtemp(path.join(process.cwd(), ".test-tmp-youtube-store-fail-")), "output"), "oauth-client-secret", {

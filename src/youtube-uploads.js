@@ -52,7 +52,7 @@ export class YouTubeUploadService {
     this.transport = dependencies.transport ?? new YouTubeResumableTransport(); this.chunkSize = dependencies.chunkSize ?? CHUNK_SIZE;
     this.randomUUID = dependencies.randomUUID ?? crypto.randomUUID; this.now = dependencies.now ?? (() => new Date()); this.sleep = dependencies.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
     this.fs = { mkdir: dependencies.mkdir ?? mkdir, open: dependencies.open ?? open, readdir: dependencies.readdir ?? readdir, realpath: dependencies.realpath ?? realpath, stat: dependencies.stat ?? stat };
-    this.activeId = undefined; this.runningPromise = undefined; this.safetyBlock = undefined;
+    this.activeId = undefined; this.runningPromise = undefined; this.safetyBlock = undefined; this.admissionQueue = Promise.resolve();
   }
   async initialize() { await this.fs.mkdir(this.sourceDirectory, { recursive: true }); await this.store.initialize(); return this.list(); }
   list() { return this.store.list().map(publicRecord); }
@@ -76,25 +76,30 @@ export class YouTubeUploadService {
     return { ...plan, snapshot: approvalSnapshot(plan) };
   }
   async start(input) {
-    if (this.activeId) throw new UploadConflictError("Another YouTube upload is already active.");
-    const plan = await this.plan(input);
-    if (plan.snapshot !== input.snapshot) throw new UploadConflictError("The upload plan, source file, or verified channel changed. Review and approve a new plan.");
-    const now = this.now().toISOString();
-    const sourceDetails = await this.fs.stat(this.#sourcePath(plan.source.filename));
-    const record = await this.store.create({ id: this.randomUUID(), sourceFilename: plan.source.filename, sourceFingerprint: plan.source.fingerprint, sourceSize: plan.source.size, sourceMtimeMs: sourceDetails.mtimeMs, sourceDuration: plan.source.duration, title: plan.title, description: plan.description, tags: plan.tags, visibility: "private", channelId: plan.channel.id, channelName: plan.channel.name, status: "Starting", uploadedBytes: 0, sessionUrl: undefined, youtubeVideoId: undefined, youtubeVideoUrl: undefined, createdAt: now, updatedAt: now, message: "Creating a private resumable YouTube upload session." });
-    this.#launch(record.id, false);
-    return publicRecord(record);
+    return this.#admit(async () => {
+      if (this.activeId) throw new UploadConflictError("Another YouTube upload is already active.");
+      const plan = await this.plan(input);
+      if (plan.snapshot !== input.snapshot) throw new UploadConflictError("The upload plan, source file, or verified channel changed. Review and approve a new plan.");
+      const now = this.now().toISOString();
+      const sourceDetails = await this.fs.stat(this.#sourcePath(plan.source.filename));
+      const record = await this.store.create({ id: this.randomUUID(), sourceFilename: plan.source.filename, sourceFingerprint: plan.source.fingerprint, sourceSize: plan.source.size, sourceMtimeMs: sourceDetails.mtimeMs, sourceDuration: plan.source.duration, title: plan.title, description: plan.description, tags: plan.tags, visibility: "private", channelId: plan.channel.id, channelName: plan.channel.name, status: "Starting", uploadedBytes: 0, sessionUrl: undefined, youtubeVideoId: undefined, youtubeVideoUrl: undefined, createdAt: now, updatedAt: now, message: "Creating a private resumable YouTube upload session." });
+      this.#launch(record.id, false);
+      return publicRecord(record);
+    });
   }
   async resume(id) {
-    if (this.activeId) throw new UploadConflictError("Another YouTube upload is already active.");
-    const record = this.store.get(id);
-    if (!record.sessionUrl || !["Interrupted", "Failed", "OutcomeUncertain"].includes(record.status)) throw new UploadConflictError("This record does not have a resumable session. No new session was created.");
-    await this.#assertRecordSource(record); const context = await this.youtubeConnection.getVerifiedUploadContext();
-    if (context.channel.id !== record.channelId) throw new UploadConflictError("The verified YouTube channel no longer matches this upload record.");
-    const updated = await this.store.update(id, { status: "Uploading", message: "Checking the existing YouTube session before resuming.", updatedAt: this.now().toISOString() });
-    this.#launch(id, true); return publicRecord(updated);
+    return this.#admit(async () => {
+      if (this.activeId) throw new UploadConflictError("Another YouTube upload is already active.");
+      const record = this.store.get(id);
+      if (!record.sessionUrl || !["Interrupted", "Failed", "OutcomeUncertain"].includes(record.status)) throw new UploadConflictError("This record does not have a resumable session. No new session was created.");
+      await this.#assertRecordSource(record); const context = await this.youtubeConnection.getVerifiedUploadContext();
+      if (context.channel.id !== record.channelId) throw new UploadConflictError("The verified YouTube channel no longer matches this upload record.");
+      const updated = await this.store.update(id, { status: "Uploading", message: "Checking the existing YouTube session before resuming.", updatedAt: this.now().toISOString() });
+      this.#launch(id, true); return publicRecord(updated);
+    });
   }
   waitForIdle() { return this.runningPromise ?? Promise.resolve(); }
+  #admit(operation) { const result = this.admissionQueue.then(operation, operation); this.admissionQueue = result.then(() => undefined, () => undefined); return result; }
   #launch(id, resume) {
     this.activeId = id;
     this.runningPromise = this.#run(id, resume).catch(async (error) => {

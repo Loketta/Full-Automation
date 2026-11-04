@@ -75,6 +75,17 @@ export class MixStore {
     });
   }
 
+  recoverExport(id, filename, recovered) {
+    return this.#exclusive(async () => {
+      await this.#mutateAndPersist((next) => {
+        const mix = next.mixes.find((candidate) => candidate.id === id); if (!mix) throw new MixNotFoundError(); const matches = mix.exports.filter((item) => item.filename === filename); if (matches.length > 1) throw new MixConflictError("Multiple export records use this WAV filename. Recovery is ambiguous and was not saved.");
+        const historyEntry = { recoveredAt: this.now().toISOString(), priorSnapshot: matches[0]?.snapshot, evidence: recovered.evidence };
+        if (matches.length === 1) Object.assign(matches[0], recovered, { recoveryHistory: [...(matches[0].recoveryHistory ?? []), historyEntry] }); else mix.exports.push({ ...recovered, filename, recoveryHistory: [historyEntry] }); mix.updatedAt = this.now().toISOString();
+      });
+      return this.get(id);
+    });
+  }
+
   async #mutateAndPersist(mutate) {
     const next = structuredClone(this.data);
     mutate(next);

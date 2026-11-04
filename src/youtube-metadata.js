@@ -93,17 +93,24 @@ export class YouTubeMetadataService {
     const profile = this.store.get().profile; if (!profile) throw new MetadataValidationError("Import or create a channel style profile first.");
     const project = this.projects.get(projectId); const mix = this.mixStore.get(mixId); const source = await this.uploadService.describeSource(sourceFilename);
     const provenance = this.compilationVideoService?.getExportProvenance(sourceFilename);
-    if (!provenance?.mixId || !provenance?.mixExportSnapshot || !Array.isArray(provenance.timeline)) throw new MetadataValidationError("This compilation MP4 predates reliable mix provenance. Automated chapters are unavailable; use manual metadata, or safely re-render the video from its completed WAV with the current application.");
-    if (provenance.outputFingerprint !== source.fingerprint) throw new MetadataConflictError("The compilation MP4 no longer matches its saved render provenance. Automated chapters were not generated.");
-    if (provenance.mixId !== mixId) throw new MetadataConflictError("The selected compilation MP4 was rendered from a different audio mix. Select its recorded source mix.");
-    const mixExport = (mix.exports ?? []).find((item) => item.snapshot === provenance.mixExportSnapshot && item.filename === provenance.masterFilename);
-    if (!mixExport?.timeline || JSON.stringify(mixExport.timeline) !== JSON.stringify(provenance.timeline)) throw new MetadataConflictError("The compilation provenance no longer matches the retained WAV mix export timeline.");
-    const authoritativeTimeline = validateCompletedTimeline(provenance.timeline, source.duration, provenance.duration);
+    let authoritativeTimeline; let chapterWarning = "";
+    if (!provenance) chapterWarning = "No saved MP4 provenance record exists. Metadata was generated without chapters; no timestamps were guessed.";
+    else {
+      if (!provenance.outputFingerprint) chapterWarning = "The MP4 provenance record has no source fingerprint. Metadata was generated without chapters.";
+      else if (provenance.outputFingerprint !== source.fingerprint) throw new MetadataConflictError("The compilation MP4 fingerprint conflicts with its saved provenance. Metadata was not generated.");
+      if (provenance.mixId && provenance.mixId !== mixId) throw new MetadataConflictError("The selected compilation MP4 was rendered from a different audio mix. Select its recorded source mix.");
+      if (provenance.mixId && provenance.mixExportSnapshot && Array.isArray(provenance.timeline)) {
+        const mixExport = (mix.exports ?? []).find((item) => item.snapshot === provenance.mixExportSnapshot && item.filename === provenance.masterFilename);
+        if (!mixExport?.timeline || JSON.stringify(mixExport.timeline) !== JSON.stringify(provenance.timeline)) throw new MetadataConflictError("The compilation provenance conflicts with the retained WAV mix export timeline.");
+        authoritativeTimeline = validateCompletedTimeline(provenance.timeline, source.duration, provenance.duration);
+      } else chapterWarning ||= provenance.provenanceDiagnostic || "The MP4 provenance is incomplete. Metadata was generated without chapters; no timestamps were guessed.";
+    }
     const projectTracks = new Map(project.tracks.filter((track) => track.libraryTrackId).map((track) => [track.libraryTrackId, track]));
-    const tracks = authoritativeTimeline.map((track) => ({ id: track.trackId, title: track.title, duration: track.duration, startSeconds: track.startSeconds, projectTrack: projectTracks.get(track.trackId) }));
+    const evidenceTrackIds = authoritativeTimeline?.map((item) => item.trackId) ?? mix.trackIds ?? []; const tracks = (authoritativeTimeline ?? []).map((track) => ({ id: track.trackId, title: track.title, duration: track.duration, startSeconds: track.startSeconds, projectTrack: projectTracks.get(track.trackId) }));
+    const selectionMismatch = evidenceTrackIds.filter((id) => !projectTracks.has(id)); if (selectionMismatch.length) throw new MetadataConflictError("The selected project does not contain every recording in the selected mix. Choose the project that produced this mix.");
     const missing = tracks.filter((track) => !track.projectTrack).map((track) => track.title);
     if (missing.length) throw new MetadataValidationError(`The selected mix contains recordings not linked to the selected project: ${missing.join(", ")}.`);
-    const notAccepted = tracks.filter((track) => this.library?.get(track.id)?.reviewStatus !== "Keep").map((track) => track.projectTrack.title);
+    const notAccepted = evidenceTrackIds.filter((id) => this.library?.get(id)?.reviewStatus !== "Keep").map((id) => projectTracks.get(id)?.title ?? id);
     if (notAccepted.length) throw new MetadataValidationError(`Every compilation chapter must use an accepted recording. Review these tracks first: ${notAccepted.join(", ")}.`);
     const timeline = tracks.map((track) => ({ trackId: track.id, title: track.projectTrack.title, startSeconds: track.startSeconds }));
     const theme = project.theme?.trim(); if (!theme) throw new MetadataValidationError("The selected project has no theme information.");
@@ -111,14 +118,14 @@ export class YouTubeMetadataService {
     const variables = { project: project.name, duration: describeDuration(source.duration), genre, mood_or_scene: scene };
     const title = renderTemplate(profile.compilationTitleTemplate || profile.titleTemplate || "{project} — {duration} Mix", variables, COMPILATION_TEMPLATE_VARIABLES, "Compilation title template");
     if (title.length > 100) throw new MetadataValidationError(`Generated title is ${title.length} characters; YouTube allows 100. Shorten the project name or compilation template.`);
-    const chapters = formatChapters(timeline); const renderedIntroduction = profile.introduction ? renderOptionalTemplate(profile.introduction, variables, DESCRIPTION_TEMPLATE_VARIABLES, "Introduction template") : { text: scene ? `Music for ${scene}.` : "", warning: "" }; const introduction = renderedIntroduction.text;
+    const chapters = timeline.length ? formatChapters(timeline) : ""; const renderedIntroduction = profile.introduction ? renderOptionalTemplate(profile.introduction, variables, DESCRIPTION_TEMPLATE_VARIABLES, "Introduction template") : { text: scene ? `Music for ${scene}.` : "", warning: "" }; const introduction = renderedIntroduction.text;
     const uses = relevantUses(project); const style = `${project.name} brings together ${genre.toLowerCase()} music grounded in the project's saved theme: ${theme}`; const listening = uses.length ? `Suitable for ${naturalList(uses)}.` : "";
     const hashtags = [...new Set([...(profile.hashtags ?? []), ...profileHashtags(selectedGenres)])].slice(0, 6).join(" ");
-    const sections = [introduction, `${style}. ${listening}`.trim(), `Tracklist\n${chapters}`, profile.reusableText, profile.links.join("\n"), profile.footer, hashtags].map((value) => String(value ?? "").trim()).filter(Boolean);
+    const sections = [introduction, `${style}. ${listening}`.trim(), chapters ? `Tracklist\n${chapters}` : "", profile.reusableText, profile.links.join("\n"), profile.footer, hashtags].map((value) => String(value ?? "").trim()).filter(Boolean);
     const description = sections.join("\n\n"); if (description.length > 5000) throw new MetadataValidationError("Generated description exceeds YouTube's 5,000-character limit. Shorten the saved profile text.");
     const tags = [...new Set([...(profile.tags ?? []), ...(profile.genreVocabulary ?? []), ...profileKeywords(selectedGenres), ...wordsFromTheme(theme)])].filter(Boolean); while (tags.join(",").length > 500) tags.pop();
-    const inputSnapshot = metadataSnapshot({ project, mix, source, timeline, profile });
-    return { kind: "compilation", projectId, mixId, source, title, description, tags, hashtags: [...new Set([...(profile.hashtags ?? []), ...profileHashtags(selectedGenres)])].slice(0, 6), chapters, timeline, selectedGenreProfiles: selectedGenreNames, warnings: [renderedIntroduction.warning, selectedGenres.length ? "" : "No reviewed genre profile matched this project; generic instrumental wording was used."].filter(Boolean), channelId: BEYOND_BLACKWALL_CHANNEL_ID, inputSnapshot };
+    const inputSnapshot = metadataSnapshot({ project, mix, source, provenance, timeline, profile });
+    return { kind: "compilation", projectId, mixId, source, title, description, tags, hashtags: [...new Set([...(profile.hashtags ?? []), ...profileHashtags(selectedGenres)])].slice(0, 6), chapters, timeline, provenanceStatus: chapters ? "verified" : (provenance?.provenanceStatus ?? "incomplete"), selectedGenreProfiles: selectedGenreNames, warnings: [chapterWarning, renderedIntroduction.warning, selectedGenres.length ? "" : "No reviewed genre profile matched this project; generic instrumental wording was used."].filter(Boolean), channelId: BEYOND_BLACKWALL_CHANNEL_ID, inputSnapshot };
   }
 
   async generateIndividual({ projectId, trackId }) {

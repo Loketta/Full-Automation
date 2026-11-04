@@ -49,6 +49,7 @@ try {
     ffmpeg: process.env.FFMPEG_PATH || "ffmpeg",
     ffprobe: process.env.FFPROBE_PATH || "ffprobe",
     mixStore,
+    mixService,
   });
   const compilationVideoStatus = await compilationVideoService.initialize();
   if (!compilationVideoStatus.available) console.warn(compilationVideoStatus.error);

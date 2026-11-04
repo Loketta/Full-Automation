@@ -1413,12 +1413,12 @@ async function loadYouTubeMetadata() {
 
 function renderYouTubeStyle(data) {
   const profile = data.profile;
-  if (!profile) { youtubeStyleStatus.textContent = "No channel style profile saved. Import the authorized Beyond the Blackwall channel or enter a profile manually."; return; }
+  renderYouTubeAnalysisProposal(data.analysisProposal);
+  if (!profile) { youtubeStyleStatus.textContent = data.bundledAnalysis?.message || "No channel style profile saved. Import the authorized Beyond the Blackwall channel or enter a profile manually."; return; }
   for (const [key, field] of Object.entries(youtubeStyleFields)) field.value = Array.isArray(profile[key]) ? profile[key].join(key === "links" ? "\n" : ", ") : profile[key] ?? "";
   currentYoutubeGenreProfiles = profile.genreProfiles ?? [];
-  youtubeStyleStatus.textContent = `${data.importedVideos.length} channel video(s) informed the profile. ${profile.findings?.join(" ") ?? ""}`;
+  youtubeStyleStatus.textContent = `${data.importedVideos.length} channel video(s) informed the profile. ${profile.findings?.join(" ") ?? ""} ${data.bundledAnalysis?.message ?? ""}`.trim();
   youtubeStyleSources.textContent = data.importedVideos.length ? `Source videos: ${data.importedVideos.map((video) => video.title).join(" · ")}` : "No existing videos informed this profile.";
-  renderYouTubeAnalysisProposal(data.analysisProposal);
 }
 
 function renderYouTubeAnalysisProposal(proposal) {

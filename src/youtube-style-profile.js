@@ -23,12 +23,20 @@ export function buildChannelAnalysisExport(data, exportedAt = new Date().toISOSt
 }
 
 export function validateChannelAnalysisProposal(value, importedVideos) {
+  const validated = validateChannelAnalysisDocument(value);
+  const videos = (importedVideos ?? []).map((video) => ({ id: video.id, title: video.title, description: video.description, tags: Array.isArray(video.tags) ? video.tags : [], durationSeconds: video.duration, publishedAt: video.publishedAt }));
+  if (!videos.length || validated.datasetFingerprint !== fingerprint(videos)) throw validation("The channel analysis does not match the currently imported metadata. Export the current dataset and review the analysis again.");
+  const importedIds = new Set(videos.map((video) => video.id));
+  const referenced = [...validated.report.observedConventions, ...validated.report.inconsistencies, ...validated.report.recommendations, ...validated.proposedProfile.genreProfiles].flatMap((item) => item.sourceVideoIds);
+  if (referenced.some((id) => !importedIds.has(id))) throw validation("The analysis cites a video ID outside the reviewed export.");
+  return validated;
+}
+
+export function validateChannelAnalysisDocument(value) {
   if (!plainObject(value) || value.version !== CHANNEL_ANALYSIS_VERSION) throw validation("The channel analysis must use schema version 1.");
   exactKeys(value, ["version", "channelId", "datasetFingerprint", "report", "proposedProfile"], "channel analysis");
   if (value.channelId !== "UCXO7g--zW3kReNXhcZNu_vg") throw validation("The channel analysis is not for Beyond the Blackwall.");
-  const videos = (importedVideos ?? []).map((video) => ({ id: video.id, title: video.title, description: video.description, tags: Array.isArray(video.tags) ? video.tags : [], durationSeconds: video.duration, publishedAt: video.publishedAt }));
-  if (!videos.length || value.datasetFingerprint !== fingerprint(videos)) throw validation("The channel analysis does not match the currently imported metadata. Export the current dataset and review the analysis again.");
-  const importedIds = new Set(videos.map((video) => video.id));
+  if (!/^[a-f0-9]{64}$/.test(value.datasetFingerprint)) throw validation("The channel analysis has an invalid dataset fingerprint.");
   const { report, proposedProfile } = value;
   if (!plainObject(report) || !text(report.summary)) throw validation("The analysis report requires a summary.");
   exactKeys(report, ["summary", "observedConventions", "inconsistencies", "recommendations"], "analysis report");
@@ -46,8 +54,6 @@ export function validateChannelAnalysisProposal(value, importedVideos) {
   if (!plainObject(branding) || typeof branding.introduction !== "string" || typeof branding.footer !== "string" || !stringList(branding.callsToAction) || !stringList(branding.recurringLinks)) throw validation("The proposed profile has invalid universal branding.");
   if (!stringList(proposedProfile.universalTags) || !stringList(proposedProfile.universalHashtags) || !Array.isArray(proposedProfile.genreProfiles)) throw validation("The proposed profile has invalid universal tags, hashtags or genre profiles.");
   for (const item of proposedProfile.genreProfiles) { exactKeys(item, ["genre", "keywords", "tags", "hashtags", "sourceVideoIds"], "genre profile"); if (!plainObject(item) || !text(item.genre) || !stringList(item.keywords) || !stringList(item.tags) || !stringList(item.hashtags) || !stringList(item.sourceVideoIds, 1)) throw validation("A genre profile is invalid or lacks source evidence."); }
-  const referenced = [...report.observedConventions, ...report.inconsistencies, ...report.recommendations, ...proposedProfile.genreProfiles].flatMap((item) => item.sourceVideoIds);
-  if (referenced.some((id) => !importedIds.has(id))) throw validation("The analysis cites a video ID outside the reviewed export.");
   return structuredClone(value);
 }
 

@@ -1,0 +1,380 @@
+{
+  "version": 1,
+  "channelId": "UCXO7g--zW3kReNXhcZNu_vg",
+  "datasetFingerprint": "2f7b83f65211ae023d0c1c76502e917df2db052b3879a53c62e5cfdcf454ba27",
+  "report": {
+    "summary": "Across 90 exported entries (89 distinct video IDs), Beyond the Blackwall primarily presents cyberpunk/sci-fi music for tabletop roleplay, dystopian writing, focus and atmospheric listening. Individual songs commonly use a distinctive name plus genre/mood descriptor, often separated by //; named long-form collections commonly use ||. The recurring scene-setting opening is a stronger channel signature than the generic copied hashtags. Long-form chapters and tracklists are useful but inconsistent. All exported YouTube tag arrays are empty, so genre tags proposed here are recommendations, not observed tag-field usage. The export contains no engagement analytics or thumbnail pixels.",
+    "observedConventions": [
+      {
+        "category": "Individual track titles",
+        "pattern": "A distinctive song name is followed by a double-slash separator and descriptive genre, mood, or listening use case; this is the dominant individual-track naming pattern.",
+        "sourceVideoIds": [
+          "xKsvXBNdfsQ",
+          "Rwc2Wb3Q1ew",
+          "5jBQ4ZqAVuY"
+        ],
+        "examples": [
+          "Devils Bunker // Cyberpunk Industrial Combat Music",
+          "Dying Breath // Industrial Synthwave Combat Music",
+          "Friday Night Firefight // Techno Metal Cyberpunk Combat Music"
+        ]
+      },
+      {
+        "category": "Compilation titles",
+        "pattern": "Named collections use a volume/series name followed by a double-pipe separator and a descriptive mix genre; some explicitly include runtime.",
+        "sourceVideoIds": [
+          "J5A-2Ekxswg",
+          "IQB4VvTtAvc",
+          "kCQt0RSD0Sk"
+        ],
+        "examples": [
+          "Hyperspace Traveller Vol 1 || Sci-Fi Power Metal & Retro Synth Mix",
+          "Neon Shallows Vol. 2 || Chill Lo-fi Cyberpunk Ambiance 1hr",
+          "Neon Shallows Vol. 1 || Cyberpunk 80s Synthwave Mix 1hr 20m"
+        ]
+      },
+      {
+        "category": "Audience positioning",
+        "pattern": "Descriptions repeatedly identify tabletop sessions, science-fiction writing, focus/study/coding, and retrowave/dark-synth listeners as intended uses.",
+        "sourceVideoIds": [
+          "xKsvXBNdfsQ",
+          "gFZd2PIJkaw",
+          "J5A-2Ekxswg"
+        ],
+        "examples": [
+          "Cyberpunk RED / Shadowrun sessions",
+          "Sci-fi & dystopian writing",
+          "Focus / study / coding playlists"
+        ]
+      },
+      {
+        "category": "Track description openings",
+        "pattern": "Many individual tracks begin with a short bespoke mood, scene, or purpose line, often starting with Music for or Music to, followed by reusable audience text.",
+        "sourceVideoIds": [
+          "HPuuLQDPArE",
+          "gFZd2PIJkaw",
+          "HF1_fT-y5Uw"
+        ],
+        "examples": [
+          "Music for when the solution is belt fed.",
+          "Music for after the worst did happen",
+          "Music for the deep sea data divers"
+        ]
+      },
+      {
+        "category": "Recurring description footer",
+        "pattern": "A fixed block of hashtags is repeated across most tracks, especially synthwave, cyberpunk, retrowave, outrun, TTRPG music, and AI-generation disclosure.",
+        "sourceVideoIds": [
+          "xKsvXBNdfsQ",
+          "Rwc2Wb3Q1ew",
+          "gFZd2PIJkaw"
+        ],
+        "examples": [
+          "#synthwave #cyberpunk #retrowave #outrun #ttrpgmusic #aestheticmusic #futuristicmusic #ai #aigenerated #ambiance"
+        ]
+      },
+      {
+        "category": "Mood and subgenre diversity",
+        "pattern": "Individual uploads cover industrial combat, techno/darkwave, lo-fi/chill, synthwave, metal, jazz and vocal tracks rather than one uniform sound.",
+        "sourceVideoIds": [
+          "xKsvXBNdfsQ",
+          "gFZd2PIJkaw",
+          "i0-UP54op98",
+          "tw-gHAbKyiI"
+        ],
+        "examples": [
+          "Devils Bunker // Cyberpunk Industrial Combat Music",
+          "Think On It // Lo-fi Sad Dreamy Cyberpunk Ambience",
+          "Smoke and Truth - Cyberpunk Jazz Lounge with Female Vocals",
+          "Eat the Rich // Cyberpunk Rock / Metal Female Vocals"
+        ]
+      },
+      {
+        "category": "Long-form tracklists",
+        "pattern": "Some compilation descriptions include tracklists or timestamped YouTube chapters, with the long-form megamix providing an extensive timestamped example.",
+        "sourceVideoIds": [
+          "O4eMqe-FuM0",
+          "SaNDEPDqk5k",
+          "0RZMYX4BOdw"
+        ],
+        "examples": [
+          "Tracklist: 00:00 8 Bit Intro ...",
+          "Youtube Chapters 0:00 Neon Blossom ...",
+          "Youtube Chapters 0:00 Neuro ..."
+        ]
+      },
+      {
+        "category": "Short-form promotion",
+        "pattern": "Short videos often reuse a full-track name and add Short, but the naming convention varies and some shorts reuse full-video descriptions.",
+        "sourceVideoIds": [
+          "krU2wLkU0g8",
+          "Z_1HvtQuhMQ",
+          "vTTd0KXs6IE"
+        ],
+        "examples": [
+          "Dancing Green short",
+          "Victory Noods - Short",
+          "Neon Blossom Short"
+        ]
+      }
+    ],
+    "inconsistencies": [
+      {
+        "issue": "The export contains a duplicated video ID and identical record, which should not be counted as independent evidence.",
+        "sourceVideoIds": [
+          "wvFnM9JPcvw"
+        ]
+      },
+      {
+        "issue": "The title separator varies among //, ||, |, hyphens and no separator; a consistent convention would improve automated titles.",
+        "sourceVideoIds": [
+          "xKsvXBNdfsQ",
+          "J5A-2Ekxswg",
+          "fFzDv6iP9mY",
+          "YEoHm8f7itw"
+        ]
+      },
+      {
+        "issue": "Compilation descriptions vary from one generic sentence to comprehensive tracklists and listening-use descriptions.",
+        "sourceVideoIds": [
+          "wvFnM9JPcvw",
+          "safYNTkZpJE",
+          "O4eMqe-FuM0"
+        ]
+      },
+      {
+        "issue": "Some descriptions are blank or malformed, including a short with a truncated opening.",
+        "sourceVideoIds": [
+          "YEoHm8f7itw",
+          "OonBA6xdBmk",
+          "jo4QfTLdVwY"
+        ]
+      },
+      {
+        "issue": "A uniform synthwave hashtag block is reused even on jazz, metal, ska, and other non-synthwave recordings; the export contains no populated YouTube tags fields.",
+        "sourceVideoIds": [
+          "i0-UP54op98",
+          "VL2drFvlnH0",
+          "tw-gHAbKyiI"
+        ]
+      },
+      {
+        "issue": "A few tracks are marked or described as vocal while the main reusable positioning often implies background ambience; metadata should accurately describe each new recording.",
+        "sourceVideoIds": [
+          "tw-gHAbKyiI",
+          "i0-UP54op98",
+          "pRb_b36eJjk"
+        ]
+      }
+    ],
+    "recommendations": [
+      {
+        "recommendation": "Use {project} || {genre} Mix ({duration}) for compilations, but omit the duration parentheses when the UI cannot verify runtime.",
+        "rationale": "This follows named collection uploads while making format and runtime clear. Duration must come from actual rendered media.",
+        "sourceVideoIds": [
+          "J5A-2Ekxswg",
+          "IQB4VvTtAvc"
+        ]
+      },
+      {
+        "recommendation": "Use {track} // {genre} for individual tracks, optionally adding a short mood or use-case phrase when grounded in the music.",
+        "rationale": "This matches the dominant single-track title structure and avoids keyword stuffing.",
+        "sourceVideoIds": [
+          "Rwc2Wb3Q1ew",
+          "5jBQ4ZqAVuY"
+        ]
+      },
+      {
+        "recommendation": "Retain the bespoke one-line atmospheric opening and the tabletop/writing/focus audience positioning, adapting it to the actual release.",
+        "rationale": "These are distinctive established conventions; avoid automatically claiming every recording is suitable for every use.",
+        "sourceVideoIds": [
+          "HPuuLQDPArE",
+          "gFZd2PIJkaw"
+        ]
+      },
+      {
+        "recommendation": "Include verified crossfade-aware chapters in every compilation when available, and never fabricate timestamps.",
+        "rationale": "Existing long-form descriptions demonstrate the usefulness of chapters but their inclusion is inconsistent.",
+        "sourceVideoIds": [
+          "O4eMqe-FuM0",
+          "SaNDEPDqk5k"
+        ]
+      },
+      {
+        "recommendation": "Use a small set of universal hashtags plus relevant genre-specific hashtags; keep AI disclosure when accurate and avoid copyrighted game or place names in new original branding.",
+        "rationale": "Current blanket hashtags are repetitive and sometimes unrelated to the track style.",
+        "sourceVideoIds": [
+          "VL2drFvlnH0",
+          "xKsvXBNdfsQ",
+          "gFZd2PIJkaw"
+        ]
+      },
+      {
+        "recommendation": "Do not infer thumbnail appearance, performance, audience retention, or SEO effectiveness from this export.",
+        "rationale": "The dataset contains metadata but no image pixels, view counts, impressions, or audience analytics.",
+        "sourceVideoIds": []
+      }
+    ]
+  },
+  "proposedProfile": {
+    "compilationTitleTemplate": "{project} || {genre} Mix ({duration})",
+    "individualTrackTitleTemplate": "{track} // {genre}",
+    "universalBranding": {
+      "introduction": "Music for {mood_or_scene}.",
+      "footer": "Cyberpunk and science-fiction listening for tabletop sessions, dystopian writing, focus and late-night listening.",
+      "callsToAction": [],
+      "recurringLinks": []
+    },
+    "universalTags": [],
+    "universalHashtags": [
+      "#cyberpunk",
+      "#ttrpgmusic"
+    ],
+    "genreProfiles": [
+      {
+        "genre": "industrial",
+        "keywords": [
+          "industrial",
+          "combat",
+          "aggressive",
+          "techno",
+          "darkwave",
+          "heavy synth"
+        ],
+        "tags": [
+          "cyberpunk industrial",
+          "industrial combat music",
+          "dark electronic music"
+        ],
+        "hashtags": [
+          "#industrial",
+          "#darkwave"
+        ],
+        "sourceVideoIds": [
+          "xKsvXBNdfsQ",
+          "Rwc2Wb3Q1ew",
+          "5jBQ4ZqAVuY"
+        ]
+      },
+      {
+        "genre": "synthwave",
+        "keywords": [
+          "synthwave",
+          "retrowave",
+          "outrun",
+          "neon",
+          "retro futuristic"
+        ],
+        "tags": [
+          "cyberpunk synthwave",
+          "retrowave",
+          "synthwave music"
+        ],
+        "hashtags": [
+          "#synthwave",
+          "#retrowave"
+        ],
+        "sourceVideoIds": [
+          "RKMOt0QBo3I",
+          "geO6b5eqrMM",
+          "IQB4VvTtAvc"
+        ]
+      },
+      {
+        "genre": "lo-fi",
+        "keywords": [
+          "lo-fi",
+          "chill",
+          "dreamy",
+          "ambient",
+          "study",
+          "relaxation"
+        ],
+        "tags": [
+          "cyberpunk lo-fi",
+          "chill synthwave",
+          "study ambience"
+        ],
+        "hashtags": [
+          "#lofi",
+          "#ambientmusic"
+        ],
+        "sourceVideoIds": [
+          "gFZd2PIJkaw",
+          "-GCNI_qVzY0",
+          "IQB4VvTtAvc"
+        ]
+      },
+      {
+        "genre": "metal",
+        "keywords": [
+          "metal",
+          "power metal",
+          "rock",
+          "punk",
+          "combat"
+        ],
+        "tags": [
+          "cyberpunk metal",
+          "sci-fi power metal",
+          "electronic rock"
+        ],
+        "hashtags": [
+          "#metal",
+          "#cyberpunkrock"
+        ],
+        "sourceVideoIds": [
+          "J5A-2Ekxswg",
+          "C7OFSHH8_ww",
+          "tw-gHAbKyiI"
+        ]
+      },
+      {
+        "genre": "jazz",
+        "keywords": [
+          "jazz",
+          "lounge",
+          "warm",
+          "slow",
+          "vocal"
+        ],
+        "tags": [
+          "cyberpunk jazz",
+          "jazz lounge",
+          "futuristic jazz"
+        ],
+        "hashtags": [
+          "#jazz",
+          "#jazzlounge"
+        ],
+        "sourceVideoIds": [
+          "i0-UP54op98",
+          "RiscOb-7oLk"
+        ]
+      },
+      {
+        "genre": "space",
+        "keywords": [
+          "space opera",
+          "traveller",
+          "hyperspace",
+          "sci-fi",
+          "retro synth"
+        ],
+        "tags": [
+          "science fiction music",
+          "space opera soundtrack",
+          "sci-fi synth"
+        ],
+        "hashtags": [
+          "#scifimusic",
+          "#spaceopera"
+        ],
+        "sourceVideoIds": [
+          "J5A-2Ekxswg",
+          "B6yVa3MtCXk"
+        ]
+      }
+    ]
+  }
+}

@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import path from "node:path";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { buildChannelAnalysisExport, validateChannelAnalysisProposal } from "./youtube-style-profile.js";
+import { buildChannelAnalysisExport, validateChannelAnalysisDocument, validateChannelAnalysisProposal } from "./youtube-style-profile.js";
 
 export const BEYOND_BLACKWALL_CHANNEL_ID = "UCXO7g--zW3kReNXhcZNu_vg";
 const DATA_FILENAME = "youtube-channel-style.json";
@@ -20,9 +20,9 @@ export class YouTubeMetadataStore {
 }
 
 export class YouTubeMetadataService {
-  constructor({ connection, store, projects, library, mixStore, mixService, uploadService, compilationVideoService, now = () => new Date(), randomUUID = crypto.randomUUID }) { Object.assign(this, { connection, store, projects, library, mixStore, mixService, uploadService, compilationVideoService, now, randomUUID }); }
-  initialize() { return this.store.initialize(); }
-  state() { const data = this.store.get(); return { profile: data.profile, importedVideos: data.imports.map(publicImportedVideo), approvals: data.approvals, analysisProposal: data.analysisProposal }; }
+  constructor({ connection, store, projects, library, mixStore, mixService, uploadService, compilationVideoService, bundledAnalysisPath, now = () => new Date(), randomUUID = crypto.randomUUID }) { Object.assign(this, { connection, store, projects, library, mixStore, mixService, uploadService, compilationVideoService, bundledAnalysisPath, now, randomUUID }); this.bundledAnalysis = undefined; this.bundledAnalysisStatus = { available: false, compatible: false, applied: false }; }
+  async initialize() { await this.store.initialize(); await this.loadBundledAnalysis(); return this.state(); }
+  state() { const data = this.store.get(); return { profile: data.profile, importedVideos: data.imports.map(publicImportedVideo), approvals: data.approvals, analysisProposal: data.analysisProposal, bundledAnalysis: this.bundledAnalysisStatus }; }
   exportChannelAnalysis() { return buildChannelAnalysisExport(this.store.get(), this.now().toISOString()); }
   async importChannelAnalysis(input) {
     const data = this.store.get(); const validated = validateChannelAnalysisProposal(input, data.imports);
@@ -36,7 +36,26 @@ export class YouTubeMetadataService {
     const proposed = proposal.proposedProfile; const current = data.profile ?? {};
     const profile = validateProfile({ ...current, titleTemplate: proposed.compilationTitleTemplate, compilationTitleTemplate: proposed.compilationTitleTemplate, individualTrackTitleTemplate: proposed.individualTrackTitleTemplate, introduction: proposed.universalBranding.introduction, footer: proposed.universalBranding.footer, reusableText: proposed.universalBranding.callsToAction.join("\n"), links: proposed.universalBranding.recurringLinks, genreVocabulary: proposed.genreProfiles.flatMap((item) => item.keywords), tags: proposed.universalTags, hashtags: proposed.universalHashtags, genreProfiles: proposed.genreProfiles });
     const evidenceIds = [...new Set(proposal.report.observedConventions.flatMap((item) => item.sourceVideoIds))];
-    await this.store.update((next) => { next.profile = { ...profile, informedByVideoIds: evidenceIds, findings: proposal.report.observedConventions.map((item) => `${item.category}: ${item.pattern}`), analysisReport: proposal.report, analysisProposalId: proposal.id, userEdited: true, updatedAt: this.now().toISOString() }; next.analysisProposal = undefined; }); return this.state().profile;
+    await this.store.update((next) => { next.profile = { ...profile, informedByVideoIds: evidenceIds, findings: proposal.report.observedConventions.map((item) => `${item.category}: ${item.pattern}`), analysisReport: proposal.report, analysisProposalId: proposal.id, userEdited: true, updatedAt: this.now().toISOString() }; next.analysisProposal = undefined; if (proposal.origin === "bundled") next.bundledAnalysisApprovals = [...new Set([...(next.bundledAnalysisApprovals ?? []), proposal.datasetFingerprint])]; });
+    if (proposal.origin === "bundled") this.bundledAnalysisStatus = { ...this.bundledAnalysisStatus, applied: true, message: "The bundled channel analysis has been approved and applied." };
+    return this.state().profile;
+  }
+
+  async loadBundledAnalysis() {
+    if (!this.bundledAnalysisPath) return;
+    try { this.bundledAnalysis = validateChannelAnalysisDocument(JSON.parse(await readFile(this.bundledAnalysisPath, "utf8"))); }
+    catch (error) { if (error?.code === "ENOENT") return; throw new MetadataPersistenceError(`Bundled channel analysis could not be loaded: ${error.message}`); }
+    await this.stageBundledAnalysis();
+  }
+
+  async stageBundledAnalysis() {
+    if (!this.bundledAnalysis) return;
+    const data = this.store.get();
+    try { validateChannelAnalysisProposal(this.bundledAnalysis, data.imports); }
+    catch (error) { this.bundledAnalysisStatus = { available: true, compatible: false, applied: false, message: data.imports.length ? error.message : "Import the Beyond the Blackwall metadata to verify and preview the bundled analysis." }; return; }
+    const applied = (data.bundledAnalysisApprovals ?? []).includes(this.bundledAnalysis.datasetFingerprint);
+    this.bundledAnalysisStatus = { available: true, compatible: true, applied, message: applied ? "The bundled channel analysis has already been approved and applied." : "A bundled reviewed analysis matches the imported channel metadata and is ready for approval." };
+    if (!applied && !data.analysisProposal) await this.store.update((next) => { next.analysisProposal = { ...this.bundledAnalysis, id: `bundled:${this.bundledAnalysis.datasetFingerprint}`, origin: "bundled", importedAt: this.now().toISOString() }; });
   }
 
   async importChannel() {
@@ -61,6 +80,7 @@ export class YouTubeMetadataService {
     const profile = analyseChannelStyle(videos);
     const importedAt = this.now().toISOString();
     await this.store.update((data) => { data.channelId = BEYOND_BLACKWALL_CHANNEL_ID; data.imports = videos; data.importedAt = importedAt; data.profile = mergeProfile(profile, data.profile?.userEdited ? data.profile : undefined); });
+    await this.stageBundledAnalysis();
     return this.state();
   }
 

@@ -83,3 +83,11 @@ test("completed timeline validates the final chapter and exact video-duration bo
   assert.throws(() => validateCompletedTimeline(valid, 65, 60), /duration does not match/i);
   assert.throws(() => validateCompletedTimeline([{ ...valid[0] }, { ...valid[1] }, { ...valid[2], duration: 15 }], 60, 60), /does not end/i);
 });
+
+test("AI proposal remains separate until explicit acceptance and preserves unrelated manual fields", async (t) => {
+  const root = await mkdtemp(path.join(process.cwd(), ".test-tmp-ai-proposal-")); t.after(() => rm(root, { recursive: true, force: true })); const store = new YouTubeMetadataStore(root); await store.initialize();
+  const proposal = { id: "proposal-1", sourceVideoIds: ["v1", "v2"], report: { summary: "Two formats", observedConventions: [{ category: "title", pattern: "Two formats", sourceVideoIds: ["v1", "v2"], examples: ["Example"] }], inconsistencies: [], recommendations: [] }, proposedProfile: { compilationTitleTemplate: "{project} | Mix", individualTrackTitleTemplate: "{track} | Track", universalBranding: { introduction: "AI intro", footer: "AI footer", callsToAction: ["Subscribe"], recurringLinks: ["https://example.test"] }, universalTags: ["music"], universalHashtags: ["#Blackwall"], genreProfiles: [{ genre: "industrial", keywords: ["dark"], tags: ["industrial"], hashtags: ["#Industrial"], sourceVideoIds: ["v1"] }] } };
+  await store.update((data) => { data.imports = [{ id: "v1" }, { id: "v2" }]; data.profile = { titleTemplate: "Manual", thumbnailBranding: "Keep this manual reference", userEdited: true }; data.aiProposal = proposal; }); const service = new YouTubeMetadataService({ store, now: () => new Date("2026-11-04T00:00:00Z") });
+  await assert.rejects(() => service.acceptAiProposal("wrong"), /missing or changed/); assert.equal(service.state().profile.titleTemplate, "Manual");
+  const accepted = await service.acceptAiProposal("proposal-1"); assert.equal(accepted.compilationTitleTemplate, "{project} | Mix"); assert.equal(accepted.individualTrackTitleTemplate, "{track} | Track"); assert.equal(accepted.thumbnailBranding, "Keep this manual reference"); assert.equal(service.state().aiProposal, undefined);
+});

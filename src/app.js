@@ -234,6 +234,18 @@ export function createApp({ client, library, projects, projectPlans, batches, vi
       if (!isSameOriginRequest(request)) return response.status(403).json({ error: "YouTube metadata actions are allowed only from this local application." });
       try { return response.json({ approval: await youtubeMetadataService.approve(request.body ?? {}) }); } catch (error) { return sendYouTubeUploadError(response, error, logger); }
     });
+    app.post("/api/youtube/metadata/ai/plan", (request, response) => {
+      if (!isSameOriginRequest(request)) return response.status(403).json({ error: "YouTube metadata actions are allowed only from this local application." });
+      try { return response.json({ plan: youtubeMetadataService.planAiAnalysis() }); } catch (error) { return sendYouTubeUploadError(response, error, logger); }
+    });
+    app.post("/api/youtube/metadata/ai/analyse", async (request, response) => {
+      if (!isSameOriginRequest(request)) return response.status(403).json({ error: "YouTube metadata actions are allowed only from this local application." });
+      try { return response.json({ proposal: await youtubeMetadataService.analyseWithAi(request.body?.snapshot) }); } catch (error) { return sendYouTubeUploadError(response, error, logger); }
+    });
+    app.post("/api/youtube/metadata/ai/accept", async (request, response) => {
+      if (!isSameOriginRequest(request)) return response.status(403).json({ error: "YouTube metadata actions are allowed only from this local application." });
+      try { return response.json({ profile: await youtubeMetadataService.acceptAiProposal(request.body?.proposalId) }); } catch (error) { return sendYouTubeUploadError(response, error, logger); }
+    });
   }
 
   app.get("/api/projects", (_request, response) => response.json({

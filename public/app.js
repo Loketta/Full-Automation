@@ -80,9 +80,14 @@ const youtubeUploadRecords = document.querySelector("#youtube-upload-records");
 const youtubeStyleImport = document.querySelector("#youtube-style-import");
 const youtubeStyleRefresh = document.querySelector("#youtube-style-refresh");
 const youtubeStyleSave = document.querySelector("#youtube-style-save");
+const youtubeStyleAi = document.querySelector("#youtube-style-ai");
 const youtubeStyleStatus = document.querySelector("#youtube-style-status");
 const youtubeStyleSources = document.querySelector("#youtube-style-sources");
-const youtubeStyleFields = { titleTemplate: document.querySelector("#youtube-style-title-template"), introduction: document.querySelector("#youtube-style-introduction"), reusableText: document.querySelector("#youtube-style-reusable"), footer: document.querySelector("#youtube-style-footer"), links: document.querySelector("#youtube-style-links"), genreVocabulary: document.querySelector("#youtube-style-genres"), durationTerminology: document.querySelector("#youtube-style-duration-terms"), tags: document.querySelector("#youtube-style-tags"), hashtags: document.querySelector("#youtube-style-hashtags"), thumbnailBranding: document.querySelector("#youtube-style-thumbnail") };
+const youtubeStyleFields = { titleTemplate: document.querySelector("#youtube-style-title-template"), compilationTitleTemplate: document.querySelector("#youtube-style-compilation-template"), individualTrackTitleTemplate: document.querySelector("#youtube-style-track-template"), introduction: document.querySelector("#youtube-style-introduction"), reusableText: document.querySelector("#youtube-style-reusable"), footer: document.querySelector("#youtube-style-footer"), links: document.querySelector("#youtube-style-links"), genreVocabulary: document.querySelector("#youtube-style-genres"), durationTerminology: document.querySelector("#youtube-style-duration-terms"), tags: document.querySelector("#youtube-style-tags"), hashtags: document.querySelector("#youtube-style-hashtags"), thumbnailBranding: document.querySelector("#youtube-style-thumbnail") };
+const youtubeAiProposal = document.querySelector("#youtube-ai-proposal");
+const youtubeAiReport = document.querySelector("#youtube-ai-report");
+const youtubeAiProfilePreview = document.querySelector("#youtube-ai-profile-preview");
+const youtubeAiAccept = document.querySelector("#youtube-ai-accept");
 const youtubeMetadataProject = document.querySelector("#youtube-metadata-project");
 const youtubeMetadataMix = document.querySelector("#youtube-metadata-mix");
 const youtubeMetadataSource = document.querySelector("#youtube-metadata-source");
@@ -113,6 +118,8 @@ let youtubeAuthPoll;
 let approvedYouTubeUploadPlan;
 let youtubeUploadPoll;
 let generatedYouTubeMetadata;
+let proposedYouTubeStyle;
+let currentYoutubeGenreProfiles = [];
 
 player.volume = Number(volume.value);
 volume.addEventListener("input", () => {
@@ -177,6 +184,8 @@ youtubeUploadPlanButton.addEventListener("click", reviewYouTubeUploadPlan);
 youtubeStyleImport.addEventListener("click", importYouTubeStyle);
 youtubeStyleRefresh.addEventListener("click", importYouTubeStyle);
 youtubeStyleSave.addEventListener("click", saveYouTubeStyle);
+youtubeStyleAi.addEventListener("click", analyseYouTubeStyleWithAi);
+youtubeAiAccept.addEventListener("click", acceptYouTubeStyleProposal);
 youtubeMetadataGenerate.addEventListener("click", generateYouTubeMetadata);
 youtubeMetadataApprove.addEventListener("click", approveYouTubeMetadata);
 youtubeMetadataUse.addEventListener("click", useYouTubeMetadata);
@@ -1404,8 +1413,22 @@ function renderYouTubeStyle(data) {
   const profile = data.profile;
   if (!profile) { youtubeStyleStatus.textContent = "No channel style profile saved. Import the authorized Beyond the Blackwall channel or enter a profile manually."; return; }
   for (const [key, field] of Object.entries(youtubeStyleFields)) field.value = Array.isArray(profile[key]) ? profile[key].join(key === "links" ? "\n" : ", ") : profile[key] ?? "";
+  currentYoutubeGenreProfiles = profile.genreProfiles ?? [];
   youtubeStyleStatus.textContent = `${data.importedVideos.length} channel video(s) informed the profile. ${profile.findings?.join(" ") ?? ""}`;
   youtubeStyleSources.textContent = data.importedVideos.length ? `Source videos: ${data.importedVideos.map((video) => video.title).join(" · ")}` : "No existing videos informed this profile.";
+  renderYouTubeAiProposal(data.aiProposal);
+}
+
+function renderYouTubeAiProposal(proposal) {
+  proposedYouTubeStyle = proposal; youtubeAiProposal.hidden = !proposal; youtubeAiReport.replaceChildren(); youtubeAiProfilePreview.textContent = proposal ? JSON.stringify(proposal.proposedProfile, null, 2) : "";
+  if (!proposal) return;
+  const summary = document.createElement("p"); summary.textContent = proposal.report.summary;
+  const heading = document.createElement("strong"); heading.textContent = "Observed conventions";
+  const observations = document.createElement("ul"); for (const item of proposal.report.observedConventions) { const li = document.createElement("li"); li.textContent = `${item.category}: ${item.pattern} — sources: ${item.sourceVideoIds.join(", ")}`; observations.append(li); }
+  const recommendationsHeading = document.createElement("strong"); recommendationsHeading.textContent = "AI recommendations (not observed facts)";
+  const recommendations = document.createElement("ul"); for (const item of proposal.report.recommendations) { const li = document.createElement("li"); li.textContent = `${item.recommendation} — ${item.rationale}${item.sourceVideoIds.length ? ` — sources: ${item.sourceVideoIds.join(", ")}` : ""}`; recommendations.append(li); }
+  const inconsistencies = document.createElement("p"); inconsistencies.textContent = `Inconsistencies: ${proposal.report.inconsistencies.map((item) => item.issue).join(" · ") || "None reported"}`;
+  youtubeAiReport.append(summary, heading, observations, recommendationsHeading, recommendations, inconsistencies);
 }
 
 function refreshYouTubeMetadataSelectors() {
@@ -1425,10 +1448,33 @@ async function importYouTubeStyle() {
 
 async function saveYouTubeStyle() {
   const body = {}; for (const [key, field] of Object.entries(youtubeStyleFields)) body[key] = field.value;
+  body.genreProfiles = currentYoutubeGenreProfiles;
   youtubeStyleSave.disabled = true;
   try { await apiJson("/api/youtube/metadata/profile", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); await loadYouTubeMetadata(); youtubeStyleStatus.textContent = "Style profile saved locally."; }
   catch (error) { youtubeStyleStatus.textContent = error.message; }
   finally { youtubeStyleSave.disabled = false; }
+}
+
+async function analyseYouTubeStyleWithAi() {
+  youtubeStyleAi.disabled = true; youtubeStyleStatus.textContent = "Preparing a one-request AI analysis plan from saved imported metadata…";
+  try {
+    const { plan } = await apiJson("/api/youtube/metadata/ai/plan", { method: "POST" });
+    const cost = plan.estimatedMaximumCostUsd === undefined ? "Cost estimate unavailable because pricing rates are not configured." : `Estimated maximum configured cost: $${plan.estimatedMaximumCostUsd.toFixed(6)}.`;
+    if (plan.oversized) { youtubeStyleStatus.textContent = `${plan.message} Estimated input: ${plan.estimatedInputTokens} tokens; configured maximum: ${plan.maximumInputTokens}.`; return; }
+    const confirmed = window.confirm(`Analyse the saved channel metadata with Gemini?\n\nModel: ${plan.model}\nVideos: ${plan.videoCount}\nEstimated input: ${plan.estimatedInputTokens} tokens\nConfigured maximum: ${plan.maximumInputTokens} tokens\n${cost}\nMaximum billable requests: ${plan.maximumBillableRequests}\n\nNo automatic retry will be made.`);
+    if (!confirmed) { youtubeStyleStatus.textContent = "AI analysis cancelled. No Gemini request was made."; return; }
+    youtubeStyleStatus.textContent = "Running exactly one approved Gemini text analysis request…";
+    const data = await apiJson("/api/youtube/metadata/ai/analyse", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ snapshot: plan.snapshot }) }); renderYouTubeAiProposal(data.proposal); youtubeStyleStatus.textContent = "AI proposal ready. Review the report and proposed profile; saved profile fields are unchanged.";
+  } catch (error) { youtubeStyleStatus.textContent = `${error.message} No automatic retry was made.`; }
+  finally { youtubeStyleAi.disabled = false; }
+}
+
+async function acceptYouTubeStyleProposal() {
+  if (!proposedYouTubeStyle || !window.confirm("Accept this reviewed AI proposal and replace the corresponding channel-style profile fields?")) return;
+  youtubeAiAccept.disabled = true;
+  try { await apiJson("/api/youtube/metadata/ai/accept", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ proposalId: proposedYouTubeStyle.id }) }); await loadYouTubeMetadata(); youtubeStyleStatus.textContent = "AI-proposed profile accepted. Review or edit the saved fields at any time."; }
+  catch (error) { youtubeStyleStatus.textContent = error.message; }
+  finally { youtubeAiAccept.disabled = false; }
 }
 
 function invalidateYouTubeMetadata() { generatedYouTubeMetadata = undefined; youtubeMetadataApprove.disabled = true; youtubeMetadataUse.disabled = true; youtubeMetadataStatus.textContent = "Selection changed. Generate metadata again before approval."; }

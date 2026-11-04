@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import path from "node:path";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { validateAiAnalysis } from "./youtube-style-ai.js";
 
 export const BEYOND_BLACKWALL_CHANNEL_ID = "UCXO7g--zW3kReNXhcZNu_vg";
 const DATA_FILENAME = "youtube-channel-style.json";
@@ -19,9 +20,18 @@ export class YouTubeMetadataStore {
 }
 
 export class YouTubeMetadataService {
-  constructor({ connection, store, projects, library, mixStore, mixService, uploadService, compilationVideoService, now = () => new Date() }) { Object.assign(this, { connection, store, projects, library, mixStore, mixService, uploadService, compilationVideoService, now }); }
+  constructor({ connection, store, projects, library, mixStore, mixService, uploadService, compilationVideoService, aiService, now = () => new Date() }) { Object.assign(this, { connection, store, projects, library, mixStore, mixService, uploadService, compilationVideoService, aiService, now }); }
   initialize() { return this.store.initialize(); }
-  state() { const data = this.store.get(); return { profile: data.profile, importedVideos: data.imports.map(publicImportedVideo), approvals: data.approvals }; }
+  state() { const data = this.store.get(); return { profile: data.profile, importedVideos: data.imports.map(publicImportedVideo), approvals: data.approvals, aiProposal: data.aiProposal }; }
+  planAiAnalysis() { if (!this.aiService) throw new MetadataValidationError("AI channel analysis is not configured."); return this.aiService.plan(); }
+  analyseWithAi(snapshot) { if (!this.aiService) throw new MetadataValidationError("AI channel analysis is not configured."); return this.aiService.analyse(snapshot); }
+  async acceptAiProposal(id) {
+    const data = this.store.get(); const proposal = data.aiProposal; if (!proposal || proposal.id !== id) throw new MetadataConflictError("The AI profile proposal is missing or changed. Run and review a new analysis.");
+    validateAiAnalysis({ report: proposal.report, proposedProfile: proposal.proposedProfile }, new Set(data.imports.map((video) => video.id)));
+    const proposed = proposal.proposedProfile; const current = data.profile ?? {};
+    const profile = validateProfile({ ...current, titleTemplate: proposed.compilationTitleTemplate, compilationTitleTemplate: proposed.compilationTitleTemplate, individualTrackTitleTemplate: proposed.individualTrackTitleTemplate, introduction: proposed.universalBranding.introduction, footer: proposed.universalBranding.footer, reusableText: proposed.universalBranding.callsToAction.join("\n"), links: proposed.universalBranding.recurringLinks, genreVocabulary: proposed.genreProfiles.flatMap((item) => item.keywords), tags: proposed.universalTags, hashtags: proposed.universalHashtags, genreProfiles: proposed.genreProfiles });
+    await this.store.update((next) => { next.profile = { ...profile, informedByVideoIds: proposal.sourceVideoIds, findings: proposal.report.observedConventions.map((item) => `${item.category}: ${item.pattern}`), aiReport: proposal.report, aiProposalId: proposal.id, userEdited: true, updatedAt: this.now().toISOString() }; next.aiProposal = undefined; }); return this.state().profile;
+  }
 
   async importChannel() {
     const context = await this.connection.getVerifiedReadContext();
@@ -71,7 +81,7 @@ export class YouTubeMetadataService {
     const timeline = tracks.map((track) => ({ trackId: track.id, title: track.projectTrack.title, startSeconds: track.startSeconds }));
     const durationText = describeDuration(source.duration); const genre = project.theme?.trim();
     if (!genre) throw new MetadataValidationError("The selected project has no theme/genre description.");
-    const title = applyTemplate(profile.titleTemplate || "{project} — {duration} Mix", { project: project.name, duration: durationText, genre: firstSentence(genre) }).slice(0, 100);
+    const title = applyTemplate(profile.compilationTitleTemplate || profile.titleTemplate || "{project} — {duration} Mix", { project: project.name, duration: durationText, genre: firstSentence(genre) }).slice(0, 100);
     const chapters = formatChapters(timeline); const hashtags = profile.hashtags.join(" ");
     const sections = [profile.introduction, `${project.name}\n${genre}`, `Tracklist\n${chapters}`, profile.reusableText, profile.links.join("\n"), profile.footer, hashtags].map((value) => String(value ?? "").trim()).filter(Boolean);
     const description = sections.join("\n\n"); if (description.length > 5000) throw new MetadataValidationError("Generated description exceeds YouTube's 5,000-character limit. Shorten the saved profile text.");
@@ -123,7 +133,7 @@ export function formatChapters(timeline) { return timeline.map((item) => `${form
 function normalizeVideo(item) { const snippet = item.snippet ?? {}; return { id: item.id, title: snippet.title ?? "", description: snippet.description ?? "", tags: Array.isArray(snippet.tags) ? snippet.tags : [], thumbnailUrl: snippet.thumbnails?.maxres?.url ?? snippet.thumbnails?.high?.url ?? snippet.thumbnails?.default?.url, publishedAt: snippet.publishedAt, duration: parseIsoDuration(item.contentDetails?.duration) }; }
 function publicImportedVideo(video) { return { id: video.id, title: video.title, thumbnailUrl: video.thumbnailUrl, publishedAt: video.publishedAt, duration: video.duration }; }
 function emptyData() { return { version: 1, channelId: BEYOND_BLACKWALL_CHANNEL_ID, imports: [], profile: undefined, approvals: [] }; }
-function validateProfile(value) { const text = (key, max = 5000) => { const result = String(value?.[key] ?? "").trim(); if (result.length > max) throw new MetadataValidationError(`${key} is too long.`); return result; }; const list = (key) => [...new Set((Array.isArray(value?.[key]) ? value[key] : String(value?.[key] ?? "").split(/[,\n]/)).map((item) => String(item).trim()).filter(Boolean))]; return { titleTemplate: text("titleTemplate", 200), introduction: text("introduction"), footer: text("footer"), reusableText: text("reusableText"), thumbnailBranding: text("thumbnailBranding", 500), links: list("links"), genreVocabulary: list("genreVocabulary"), durationTerminology: list("durationTerminology"), tags: list("tags"), hashtags: list("hashtags") }; }
+function validateProfile(value) { const text = (key, max = 5000) => { const result = String(value?.[key] ?? "").trim(); if (result.length > max) throw new MetadataValidationError(`${key} is too long.`); return result; }; const list = (key) => [...new Set((Array.isArray(value?.[key]) ? value[key] : String(value?.[key] ?? "").split(/[,\n]/)).map((item) => String(item).trim()).filter(Boolean))]; return { titleTemplate: text("titleTemplate", 200), compilationTitleTemplate: text("compilationTitleTemplate", 200), individualTrackTitleTemplate: text("individualTrackTitleTemplate", 200), introduction: text("introduction"), footer: text("footer"), reusableText: text("reusableText"), thumbnailBranding: text("thumbnailBranding", 500), links: list("links"), genreVocabulary: list("genreVocabulary"), durationTerminology: list("durationTerminology"), tags: list("tags"), hashtags: list("hashtags"), genreProfiles: Array.isArray(value?.genreProfiles) ? structuredClone(value.genreProfiles) : [] }; }
 function mergeProfile(inferred, existing) { return existing ? { ...inferred, ...validateProfile(existing), informedByVideoIds: inferred.informedByVideoIds, findings: inferred.findings, userEdited: true } : inferred; }
 function validateMetadataEdits(value) { const title = String(value.title ?? "").trim(); const description = String(value.description ?? "").trim(); const tags = (Array.isArray(value.tags) ? value.tags : String(value.tags ?? "").split(",")).map((tag) => String(tag).trim()).filter(Boolean); if (!title || title.length > 100) throw new MetadataValidationError("YouTube title must contain 1–100 characters."); if (description.length > 5000) throw new MetadataValidationError("YouTube description exceeds 5,000 characters."); if (tags.join(",").length > 500) throw new MetadataValidationError("YouTube tags exceed 500 characters."); return { title, description, tags }; }
 function metadataSnapshot(value) { return crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex"); }

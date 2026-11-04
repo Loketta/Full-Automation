@@ -104,6 +104,7 @@ const youtubeMetadataDescription = document.querySelector("#youtube-metadata-des
 const youtubeMetadataTags = document.querySelector("#youtube-metadata-tags");
 const youtubeChapterPreview = document.querySelector("#youtube-chapter-preview");
 const youtubeMetadataAnalysis = document.querySelector("#youtube-metadata-analysis");
+const youtubeLinkRepair = document.querySelector("#youtube-link-repair");
 const youtubeMetadataApprove = document.querySelector("#youtube-metadata-approve");
 const youtubeMetadataUse = document.querySelector("#youtube-metadata-use");
 const youtubeMetadataStatus = document.querySelector("#youtube-metadata-status");
@@ -200,6 +201,7 @@ youtubeAnalysisExport.addEventListener("click", exportYouTubeAnalysisMetadata);
 youtubeAnalysisFile.addEventListener("change", importYouTubeStyleAnalysis);
 youtubeAnalysisAccept.addEventListener("click", acceptYouTubeStyleProposal);
 youtubeMetadataGenerate.addEventListener("click", generateYouTubeMetadata);
+youtubeLinkRepair.addEventListener("click", reviewProjectMixLinkRepair);
 youtubeMetadataApprove.addEventListener("click", approveYouTubeMetadata);
 youtubeMetadataUse.addEventListener("click", useYouTubeMetadata);
 for (const field of [youtubeMetadataKind, youtubeMetadataProject, youtubeMetadataTrack, youtubeMetadataMix, youtubeMetadataSource]) field.addEventListener("input", () => { refreshYouTubeMetadataSelectors(); invalidateYouTubeMetadata(); });
@@ -1510,16 +1512,29 @@ async function acceptYouTubeStyleProposal() {
   finally { youtubeAnalysisAccept.disabled = false; }
 }
 
-function invalidateYouTubeMetadata() { generatedYouTubeMetadata = undefined; youtubeMetadataApprove.disabled = true; youtubeMetadataUse.disabled = true; youtubeMetadataStatus.textContent = "Selection changed. Generate metadata again before approval."; }
+function invalidateYouTubeMetadata() { generatedYouTubeMetadata = undefined; youtubeMetadataApprove.disabled = true; youtubeMetadataUse.disabled = true; youtubeLinkRepair.hidden = true; youtubeMetadataStatus.textContent = "Selection changed. Generate metadata again before approval."; }
 
 async function generateYouTubeMetadata() {
   invalidateYouTubeMetadata(); youtubeMetadataGenerate.disabled = true; const individual = youtubeMetadataKind.value === "individual"; youtubeMetadataStatus.textContent = individual ? "Building track metadata from the saved project and recording…" : "Building chapters from the actual mix timeline…";
   try {
     const endpoint = individual ? "/api/youtube/metadata/generate-track" : "/api/youtube/metadata/generate"; const body = individual ? { projectId: youtubeMetadataProject.value, trackId: youtubeMetadataTrack.value } : { projectId: youtubeMetadataProject.value, mixId: youtubeMetadataMix.value, sourceFilename: youtubeMetadataSource.value };
     const data = await apiJson(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    generatedYouTubeMetadata = data.metadata; youtubeMetadataTitle.value = data.metadata.title; youtubeMetadataDescription.value = data.metadata.description; youtubeMetadataTags.value = data.metadata.tags.join(", "); youtubeChapterPreview.textContent = data.metadata.chapters || (individual ? "No chapters for individual-track metadata." : "No verified chapters are available; no timestamps were guessed."); youtubeMetadataAnalysis.classList.toggle("warning", data.metadata.warnings.length > 0); youtubeMetadataAnalysis.textContent = `Provenance: ${data.metadata.provenanceStatus ?? "not applicable"}. Selected genre profiles: ${data.metadata.selectedGenreProfiles.join(", ") || "none"}. Hashtags: ${data.metadata.hashtags.join(" ") || "none"}. ${data.metadata.warnings.join(" ")}`; youtubeMetadataApprove.disabled = false; youtubeMetadataUse.disabled = individual; youtubeMetadataStatus.textContent = data.metadata.chapters || individual ? "Metadata generated locally. Review and edit every field before approval." : "Metadata generated without chapters. Review the provenance warning and all fields before approval.";
+    generatedYouTubeMetadata = data.metadata; youtubeMetadataTitle.value = data.metadata.title; youtubeMetadataDescription.value = data.metadata.description; youtubeMetadataTags.value = data.metadata.tags.join(", "); youtubeChapterPreview.textContent = data.metadata.chapters || (individual ? "No chapters for individual-track metadata." : "No verified chapters are available; no timestamps were guessed."); youtubeMetadataAnalysis.classList.toggle("warning", data.metadata.warnings.length > 0); youtubeMetadataAnalysis.textContent = `Provenance: ${data.metadata.provenanceStatus ?? "not applicable"}. Project/mix linkage: ${data.metadata.linkageDiagnostics?.status ?? "not applicable"}. Selected genre profiles: ${data.metadata.selectedGenreProfiles.join(", ") || "none"}. Hashtags: ${data.metadata.hashtags.join(" ") || "none"}. ${data.metadata.warnings.join(" ")}`; youtubeLinkRepair.hidden = individual || !data.metadata.linkageDiagnostics?.missingRecordings?.some((item) => item.repairable); youtubeMetadataApprove.disabled = false; youtubeMetadataUse.disabled = individual; youtubeMetadataStatus.textContent = data.metadata.chapters || individual ? "Metadata generated locally. Review and edit every field before approval." : "Metadata generated without chapters. Review the provenance and project-link warnings and all fields before approval.";
   } catch (error) { youtubeMetadataStatus.textContent = error.message; }
   finally { youtubeMetadataGenerate.disabled = false; }
+}
+
+async function reviewProjectMixLinkRepair() {
+  if (!generatedYouTubeMetadata || generatedYouTubeMetadata.kind !== "compilation") return; youtubeLinkRepair.disabled = true;
+  try {
+    const request = { projectId: generatedYouTubeMetadata.projectId, mixId: generatedYouTubeMetadata.mixId, sourceFilename: generatedYouTubeMetadata.source.filename };
+    const { plan } = await apiJson("/api/youtube/metadata/link-repair/plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(request) });
+    const summary = plan.repairs.map((item) => `${item.title ?? item.libraryTrackId} (${item.libraryTrackId})`).join("\n");
+    if (!window.confirm(`Repair these missing project links?\n\n${summary}\n\n${plan.message}\n\nNo recordings or media files will be modified.`)) return;
+    await apiJson("/api/youtube/metadata/link-repair/approve", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...request, snapshot: plan.snapshot }) });
+    invalidateYouTubeMetadata(); youtubeMetadataStatus.textContent = "Legacy project links repaired from stored project and planned-track evidence. Generate metadata again to verify chapters."; await loadProjects();
+  } catch (error) { youtubeMetadataStatus.textContent = error.message; }
+  finally { youtubeLinkRepair.disabled = false; }
 }
 
 async function approveYouTubeMetadata() {

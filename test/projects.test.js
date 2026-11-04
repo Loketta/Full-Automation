@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { mkdir, mkdtemp, readFile, rename as fsRename, rm, writeFile } from "node:fs/promises";
 import { TrackLibrary } from "../src/library.js";
-import { assertGenerationSnapshot, MAX_IMPORT_BYTES, ProjectNotFoundError, ProjectStore, ProjectValidationError, validateImport } from "../src/projects.js";
+import { assertGenerationSnapshot, MAX_IMPORT_BYTES, ProjectConflictError, ProjectNotFoundError, ProjectStore, ProjectValidationError, validateImport } from "../src/projects.js";
 
 async function fixture(t) {
   const root = await mkdtemp(path.join(process.cwd(), ".test-tmp-projects-"));
@@ -215,6 +215,15 @@ test("project metadata write failure rolls ordinary edits back", async (t) => {
   fail = true;
   await assert.rejects(() => store.update(project.id, { name: "Lost edit" }), /write failed/);
   assert.equal(store.list()[0].name, "Safe");
+});
+
+test("explicit legacy-link repair is atomic and rejects stale or conflicting projects", async (t) => {
+  const { output, dependencies } = await fixture(t); const store = new ProjectStore(output, dependencies); await store.initialize(); const project = await store.import(validImport); const [first, second] = project.tracks;
+  await assert.rejects(() => store.repairLegacyLinks(project.id, [{ plannedTrackId: first.id, libraryTrackId: "recording-a" }], { ...project, name: "stale" }), ProjectConflictError);
+  await store.linkGenerated(project.id, second.id, "existing-recording"); const current = store.get(project.id);
+  await assert.rejects(() => store.repairLegacyLinks(project.id, [{ plannedTrackId: second.id, libraryTrackId: "different-recording" }], current), /already linked to a different recording/);
+  assert.equal(store.getTrack(project.id, first.id).track.libraryTrackId, undefined);
+  const repaired = await store.repairLegacyLinks(project.id, [{ plannedTrackId: first.id, libraryTrackId: "recording-a" }], current); assert.equal(repaired.tracks[0].libraryTrackId, "recording-a"); assert.equal(repaired.tracks[1].libraryTrackId, "existing-recording");
 });
 
 test("server snapshot verification blocks stale paid-generation data", () => {

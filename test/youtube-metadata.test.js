@@ -79,6 +79,19 @@ test("rejects conflicting provenance but generates legacy metadata without guess
   provenance = { outputFingerprint: fingerprint, masterFilename: "master.wav", duration: 60, mixId: "selected", mixExportSnapshot: "snap", timeline }; await assert.rejects(() => service.approve({ projectId: "p", mixId: "selected", sourceFilename: "legacy.mp4", inputSnapshot: fallback.inputSnapshot, title: fallback.title, description: fallback.description, tags: fallback.tags }), /changed/);
 });
 
+test("legacy project-link diagnostics allow chapterless metadata and repair only stored ownership evidence", async (t) => {
+  const root = await mkdtemp(path.join(process.cwd(), ".test-tmp-youtube-legacy-links-")); t.after(() => rm(root, { recursive: true, force: true })); const fingerprint = "e".repeat(64);
+  let project = { id: "industrial", name: "Industrial Afterhours", theme: "Instrumental industrial music.", tracks: ["a", "b", "c"].map((id) => ({ id: `planned-${id}`, title: `Track ${id.toUpperCase()}`, status: "Pending" })) };
+  const recordings = new Map([["a", { id: "a", title: "Alpha", reviewStatus: "Keep", projectId: "industrial", plannedTrackId: "planned-a" }], ["b", { id: "b", title: "Beta", reviewStatus: "Keep" }], ["c", { id: "c", title: "Gamma", reviewStatus: "Keep" }]]);
+  const projects = { get: () => structuredClone(project), list: () => [structuredClone(project)], async repairLegacyLinks(_id, repairs, expected) { assert.deepEqual(expected, project); for (const repair of repairs) project.tracks.find((track) => track.id === repair.plannedTrackId).libraryTrackId = repair.libraryTrackId; } };
+  const service = new YouTubeMetadataService({ store: new YouTubeMetadataStore(root), projects, library: { get: (id) => structuredClone(recordings.get(id)) }, mixStore: { get: () => ({ id: "mix", trackIds: ["a", "b", "c"], exports: [] }) }, uploadService: { async describeSource(filename) { return { filename, fingerprint, duration: 3600 }; } }, compilationVideoService: { getExportProvenance: () => undefined } });
+  await service.initialize(); await service.saveProfile({ titleTemplate: "{project}" });
+  const diagnostics = await service.diagnoseProjectMixAssociation({ projectId: "industrial", mixId: "mix", sourceFilename: "legacy.mp4" }); assert.equal(diagnostics.provenanceStatus, "incomplete"); assert.deepEqual(diagnostics.missingRecordings.map((item) => item.id), ["a", "b", "c"]);
+  const generated = await service.generate({ projectId: "industrial", mixId: "mix", sourceFilename: "legacy.mp4" }); assert.equal(generated.chapters, ""); assert.equal(generated.linkageDiagnostics.status, "unverified"); assert.deepEqual(generated.linkageDiagnostics.missingRecordings.map((item) => [item.id, item.title, item.repairable]), [["a", "Alpha", true], ["b", "Beta", false], ["c", "Gamma", false]]); assert.match(generated.warnings.join(" "), /Project linkage is unverified/);
+  const plan = await service.planProjectMixRepair({ projectId: "industrial", mixId: "mix", sourceFilename: "legacy.mp4" }); assert.deepEqual(plan.repairs.map((item) => item.libraryTrackId), ["a"]); await assert.rejects(() => service.approveProjectMixRepair({ ...plan, snapshot: "stale" }), /changed/); await service.approveProjectMixRepair(plan); assert.equal(project.tracks[0].libraryTrackId, "a"); assert.equal(project.tracks[1].libraryTrackId, undefined);
+  recordings.get("b").projectId = "other-project"; await assert.rejects(() => service.generate({ projectId: "industrial", mixId: "mix", sourceFilename: "legacy.mp4" }), /confirmed evidence.*other-project/i);
+});
+
 test("completed timeline validates the final chapter and exact video-duration boundary", () => {
   const valid = [{ trackId: "a", startSeconds: 0, duration: 20 }, { trackId: "b", startSeconds: 20, duration: 20 }, { trackId: "c", startSeconds: 40, duration: 20 }];
   assert.equal(validateCompletedTimeline(valid, 60, 60).length, 3);

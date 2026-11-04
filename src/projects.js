@@ -171,6 +171,24 @@ export class ProjectStore {
     });
   }
 
+  repairLegacyLinks(projectId, repairs, expectedProject) {
+    return this.#exclusive(async () => {
+      const project = this.#findProject(projectId);
+      if (JSON.stringify(project) !== JSON.stringify(expectedProject)) throw new ProjectConflictError("The project changed after the legacy-link repair was reviewed. Review it again.");
+      if (!Array.isArray(repairs) || !repairs.length) throw new ProjectValidationError("No legacy recording links were selected for repair.");
+      const ids = new Set();
+      for (const repair of repairs) {
+        if (!repair || typeof repair.plannedTrackId !== "string" || typeof repair.libraryTrackId !== "string" || ids.has(repair.libraryTrackId)) throw new ProjectValidationError("Legacy recording-link repair data is invalid.");
+        ids.add(repair.libraryTrackId); const track = project.tracks.find((candidate) => candidate.id === repair.plannedTrackId);
+        if (!track) throw new ProjectConflictError("A planned track selected for repair no longer exists.");
+        if (track.libraryTrackId && track.libraryTrackId !== repair.libraryTrackId) throw new ProjectConflictError("A planned track is already linked to a different recording. Nothing was changed.");
+      }
+      return this.#mutateAndPersist(() => {
+        for (const repair of repairs) { const track = project.tracks.find((candidate) => candidate.id === repair.plannedTrackId); track.status = "Generated"; track.libraryTrackId = repair.libraryTrackId; }
+      }, project);
+    });
+  }
+
   markSavedFile(projectId, trackId, filename) {
     return this.#exclusive(async () => {
       const project = this.#findProject(projectId);

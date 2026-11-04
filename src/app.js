@@ -230,6 +230,10 @@ export function createApp({ client, library, projects, projectPlans, batches, vi
       if (!isSameOriginRequest(request)) return response.status(403).json({ error: "YouTube metadata actions are allowed only from this local application." });
       try { return response.json({ metadata: await youtubeMetadataService.generate(request.body ?? {}) }); } catch (error) { return sendYouTubeUploadError(response, error, logger); }
     });
+    app.post("/api/youtube/metadata/generate-track", async (request, response) => {
+      if (!isSameOriginRequest(request)) return response.status(403).json({ error: "YouTube metadata actions are allowed only from this local application." });
+      try { return response.json({ metadata: await youtubeMetadataService.generateIndividual(request.body ?? {}) }); } catch (error) { return sendYouTubeUploadError(response, error, logger); }
+    });
     app.post("/api/youtube/metadata/approve", async (request, response) => {
       if (!isSameOriginRequest(request)) return response.status(403).json({ error: "YouTube metadata actions are allowed only from this local application." });
       try { return response.json({ approval: await youtubeMetadataService.approve(request.body ?? {}) }); } catch (error) { return sendYouTubeUploadError(response, error, logger); }

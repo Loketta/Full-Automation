@@ -19,7 +19,7 @@ export class YouTubeMetadataStore {
 }
 
 export class YouTubeMetadataService {
-  constructor({ connection, store, projects, library, mixStore, mixService, uploadService, now = () => new Date() }) { Object.assign(this, { connection, store, projects, library, mixStore, mixService, uploadService, now }); }
+  constructor({ connection, store, projects, library, mixStore, mixService, uploadService, compilationVideoService, now = () => new Date() }) { Object.assign(this, { connection, store, projects, library, mixStore, mixService, uploadService, compilationVideoService, now }); }
   initialize() { return this.store.initialize(); }
   state() { const data = this.store.get(); return { profile: data.profile, importedVideos: data.imports.map(publicImportedVideo), approvals: data.approvals }; }
 
@@ -55,15 +55,21 @@ export class YouTubeMetadataService {
   async generate({ projectId, mixId, sourceFilename }) {
     const profile = this.store.get().profile; if (!profile) throw new MetadataValidationError("Import or create a channel style profile first.");
     const project = this.projects.get(projectId); const mix = this.mixStore.get(mixId); const source = await this.uploadService.describeSource(sourceFilename);
-    const inspection = await this.mixService.preview({ trackIds: mix.trackIds, crossfadeSeconds: mix.crossfadeSeconds });
+    const provenance = this.compilationVideoService?.getExportProvenance(sourceFilename);
+    if (!provenance?.mixId || !provenance?.mixExportSnapshot || !Array.isArray(provenance.timeline)) throw new MetadataValidationError("This compilation MP4 predates reliable mix provenance. Automated chapters are unavailable; use manual metadata, or safely re-render the video from its completed WAV with the current application.");
+    if (provenance.outputFingerprint !== source.fingerprint) throw new MetadataConflictError("The compilation MP4 no longer matches its saved render provenance. Automated chapters were not generated.");
+    if (provenance.mixId !== mixId) throw new MetadataConflictError("The selected compilation MP4 was rendered from a different audio mix. Select its recorded source mix.");
+    const mixExport = (mix.exports ?? []).find((item) => item.snapshot === provenance.mixExportSnapshot && item.filename === provenance.masterFilename);
+    if (!mixExport?.timeline || JSON.stringify(mixExport.timeline) !== JSON.stringify(provenance.timeline)) throw new MetadataConflictError("The compilation provenance no longer matches the retained WAV mix export timeline.");
+    const authoritativeTimeline = validateCompletedTimeline(provenance.timeline, source.duration, provenance.duration);
     const projectTracks = new Map(project.tracks.filter((track) => track.libraryTrackId).map((track) => [track.libraryTrackId, track]));
-    const tracks = inspection.tracks.map((track) => ({ ...track, projectTrack: projectTracks.get(track.id) }));
+    const tracks = authoritativeTimeline.map((track) => ({ id: track.trackId, title: track.title, duration: track.duration, startSeconds: track.startSeconds, projectTrack: projectTracks.get(track.trackId) }));
     const missing = tracks.filter((track) => !track.projectTrack).map((track) => track.title);
     if (missing.length) throw new MetadataValidationError(`The selected mix contains recordings not linked to the selected project: ${missing.join(", ")}.`);
     const notAccepted = tracks.filter((track) => this.library?.get(track.id)?.reviewStatus !== "Keep").map((track) => track.projectTrack.title);
     if (notAccepted.length) throw new MetadataValidationError(`Every compilation chapter must use an accepted recording. Review these tracks first: ${notAccepted.join(", ")}.`);
-    const timeline = buildChapterTimeline(tracks, inspection.transitions);
-    const durationText = describeDuration(inspection.expectedDuration); const genre = project.theme?.trim();
+    const timeline = tracks.map((track) => ({ trackId: track.id, title: track.projectTrack.title, startSeconds: track.startSeconds }));
+    const durationText = describeDuration(source.duration); const genre = project.theme?.trim();
     if (!genre) throw new MetadataValidationError("The selected project has no theme/genre description.");
     const title = applyTemplate(profile.titleTemplate || "{project} — {duration} Mix", { project: project.name, duration: durationText, genre: firstSentence(genre) }).slice(0, 100);
     const chapters = formatChapters(timeline); const hashtags = profile.hashtags.join(" ");
@@ -98,6 +104,19 @@ export function buildChapterTimeline(tracks, transitions) {
   const timeline = []; let start = 0;
   tracks.forEach((track, index) => { if (!Number.isFinite(track.duration) || track.duration <= 0) throw new MetadataValidationError("Every chapter requires a valid source duration."); timeline.push({ trackId: track.id, title: track.projectTrack?.title ?? track.title, startSeconds: start }); if (index < tracks.length - 1) start += track.duration - Number(transitions[index]?.duration ?? 0); });
   if (timeline[0].startSeconds !== 0 || timeline.some((item, index) => index && item.startSeconds - timeline[index - 1].startSeconds < 10)) throw new MetadataValidationError("YouTube chapters must begin at 00:00 and each chapter must be at least 10 seconds long."); return timeline;
+}
+export function validateCompletedTimeline(timeline, videoDuration, recordedDuration, tolerance = 2) {
+  if (!Array.isArray(timeline) || timeline.length < 3) throw new MetadataValidationError("The completed video does not have at least three authoritative timeline entries.");
+  if (!Number.isFinite(videoDuration) || videoDuration <= 0 || !Number.isFinite(recordedDuration) || Math.abs(recordedDuration - videoDuration) > tolerance) throw new MetadataConflictError("The completed video's duration does not match its recorded compilation provenance.");
+  for (let index = 0; index < timeline.length; index += 1) {
+    const item = timeline[index]; if (typeof item.trackId !== "string" || !Number.isFinite(item.startSeconds) || !Number.isFinite(item.duration) || item.duration <= 0) throw new MetadataValidationError("The retained mix timeline is incomplete or invalid.");
+    if (index === 0 && item.startSeconds !== 0) throw new MetadataValidationError("The authoritative chapter timeline must begin at 00:00.");
+    if (index > 0 && item.startSeconds - timeline[index - 1].startSeconds < 10) throw new MetadataValidationError("Every authoritative chapter must be at least 10 seconds long.");
+    if (item.startSeconds < 0 || item.startSeconds >= videoDuration) throw new MetadataValidationError("A chapter timestamp falls outside the completed video duration.");
+  }
+  const last = timeline.at(-1); if (videoDuration - last.startSeconds < 10) throw new MetadataValidationError("The final chapter must last at least 10 seconds.");
+  if (Math.abs(last.startSeconds + last.duration - videoDuration) > tolerance) throw new MetadataConflictError("The retained mix timeline does not end with the completed video duration.");
+  return structuredClone(timeline);
 }
 export function formatChapters(timeline) { return timeline.map((item) => `${formatTimestamp(item.startSeconds)} ${item.title}`).join("\n"); }
 

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { analyseChannelStyle, BEYOND_BLACKWALL_CHANNEL_ID, buildChapterTimeline, formatChapters, YouTubeMetadataService, YouTubeMetadataStore } from "../src/youtube-metadata.js";
+import { analyseChannelStyle, BEYOND_BLACKWALL_CHANNEL_ID, buildChapterTimeline, formatChapters, validateCompletedTimeline, YouTubeMetadataService, YouTubeMetadataStore } from "../src/youtube-metadata.js";
 import { buildMixTimeline } from "../src/mixes.js";
 
 function video(id, title, description = "Recurring intro\n\nBody\n\nRecurring footer", tags = ["dark ambient", "cyberpunk"]) { return { id, snippet: { title, description, tags, publishedAt: "2026-01-01T00:00:00Z", thumbnails: { high: { url: `https://thumb.test/${id}.jpg` } } }, contentDetails: { duration: "PT1H2M3S" } }; }
@@ -54,11 +54,32 @@ test("profile edits persist and generated approval invalidates on source or proj
   const root = await mkdtemp(path.join(process.cwd(), ".test-tmp-youtube-generate-")); t.after(() => rm(root, { recursive: true, force: true }));
   let projectName = "Industrial Afterhours"; let fingerprint = "a".repeat(64); let uploadCalls = 0;
   const project = () => ({ id: "project", name: projectName, theme: "Instrumental cyberpunk industrial music.", tracks: ["a", "b", "c"].map((id) => ({ id: `p-${id}`, title: `Track ${id.toUpperCase()}`, libraryTrackId: id })) });
-  const store = new YouTubeMetadataStore(root); const service = new YouTubeMetadataService({ store, projects: { get: () => project() }, library: { get: (id) => ({ id, reviewStatus: "Keep" }) }, mixStore: { get: () => ({ id: "mix", title: "Mix", trackIds: ["a", "b", "c"], crossfadeSeconds: 8, updatedAt: "now" }) }, mixService: { async preview() { return { tracks: ["a", "b", "c"].map((id) => ({ id, title: id, duration: 1300 })), transitions: [{ duration: 8 }, { duration: 8 }], expectedDuration: 3884 }; } }, uploadService: { async describeSource(filename) { uploadCalls += 1; return { filename, fingerprint, size: 123, duration: 3884 }; } }, now: () => new Date("2026-11-04T00:00:00Z") });
+  const timeline = [0, 1292, 2584].map((startSeconds, index) => ({ trackId: ["a", "b", "c"][index], title: ["a", "b", "c"][index], startSeconds, duration: 1300 }));
+  const mix = () => ({ id: "mix", title: "Mix", trackIds: ["a", "b", "c"], crossfadeSeconds: 8, updatedAt: "now", exports: [{ filename: "master.wav", snapshot: "mix-snapshot", timeline }] });
+  const store = new YouTubeMetadataStore(root); const service = new YouTubeMetadataService({ store, projects: { get: () => project() }, library: { get: (id) => ({ id, reviewStatus: "Keep" }) }, mixStore: { get: () => mix() }, uploadService: { async describeSource(filename) { uploadCalls += 1; return { filename, fingerprint, size: 123, duration: 3884 }; } }, compilationVideoService: { getExportProvenance: () => ({ filename: "mix.mp4", outputFingerprint: fingerprint, masterFilename: "master.wav", duration: 3884, mixId: "mix", mixExportSnapshot: "mix-snapshot", timeline }) }, now: () => new Date("2026-11-04T00:00:00Z") });
   await service.initialize(); await service.saveProfile({ titleTemplate: "{project} | {duration} {genre}", introduction: "Enter the Blackwall.", reusableText: "Reusable", footer: "Footer", links: "https://example.test", genreVocabulary: "cyberpunk, industrial", tags: "music", hashtags: "#BeyondTheBlackwall" });
   const restarted = new YouTubeMetadataStore(root); await restarted.initialize(); assert.equal(restarted.get().profile.introduction, "Enter the Blackwall.");
   const generated = await service.generate({ projectId: "project", mixId: "mix", sourceFilename: "mix.mp4" }); assert.ok(generated.title.length <= 100); assert.match(generated.description, /00:00 Track A/); assert.match(generated.description, /#BeyondTheBlackwall/); assert.equal(uploadCalls, 1);
   const approval = await service.approve({ projectId: "project", mixId: "mix", sourceFilename: "mix.mp4", inputSnapshot: generated.inputSnapshot, title: `${generated.title} Edited`, description: generated.description, tags: generated.tags }); assert.match(approval.title, /Edited/); assert.equal(service.state().approvals.length, 1);
   projectName = "Changed"; await assert.rejects(() => service.approve({ projectId: "project", mixId: "mix", sourceFilename: "mix.mp4", inputSnapshot: generated.inputSnapshot, title: generated.title, description: generated.description, tags: generated.tags }), /changed/);
   fingerprint = "b".repeat(64); const changed = await service.generate({ projectId: "project", mixId: "mix", sourceFilename: "mix.mp4" }); assert.notEqual(changed.inputSnapshot, generated.inputSnapshot);
+});
+
+test("rejects mismatched and legacy MP4 provenance instead of claiming authoritative chapters", async (t) => {
+  const root = await mkdtemp(path.join(process.cwd(), ".test-tmp-youtube-provenance-")); t.after(() => rm(root, { recursive: true, force: true })); const fingerprint = "c".repeat(64);
+  const timeline = [0, 20, 40].map((startSeconds, index) => ({ trackId: `t${index}`, title: `T${index}`, startSeconds, duration: index === 2 ? 20 : 30 }));
+  let provenance;
+  const service = new YouTubeMetadataService({ store: new YouTubeMetadataStore(root), projects: { get: () => ({ id: "p", name: "P", theme: "Dark industrial music.", tracks: timeline.map((item) => ({ title: item.title, libraryTrackId: item.trackId })) }) }, library: { get: () => ({ reviewStatus: "Keep" }) }, mixStore: { get: () => ({ id: "selected", exports: [{ filename: "master.wav", snapshot: "snap", timeline }] }) }, uploadService: { async describeSource(filename) { return { filename, fingerprint, duration: 60 }; } }, compilationVideoService: { getExportProvenance() { return provenance; } } });
+  await service.initialize(); await service.saveProfile({ titleTemplate: "{project}" });
+  provenance = { outputFingerprint: fingerprint, masterFilename: "master.wav", duration: 60, mixId: "other", mixExportSnapshot: "snap", timeline };
+  await assert.rejects(() => service.generate({ projectId: "p", mixId: "selected", sourceFilename: "video.mp4" }), /different audio mix/);
+  provenance = undefined; await assert.rejects(() => service.generate({ projectId: "p", mixId: "selected", sourceFilename: "legacy.mp4" }), /predates reliable mix provenance/);
+});
+
+test("completed timeline validates the final chapter and exact video-duration boundary", () => {
+  const valid = [{ trackId: "a", startSeconds: 0, duration: 20 }, { trackId: "b", startSeconds: 20, duration: 20 }, { trackId: "c", startSeconds: 40, duration: 20 }];
+  assert.equal(validateCompletedTimeline(valid, 60, 60).length, 3);
+  assert.throws(() => validateCompletedTimeline([{ ...valid[0] }, { ...valid[1] }, { ...valid[2], startSeconds: 51, duration: 9 }], 60, 60), /final chapter.*10 seconds/i);
+  assert.throws(() => validateCompletedTimeline(valid, 65, 60), /duration does not match/i);
+  assert.throws(() => validateCompletedTimeline([{ ...valid[0] }, { ...valid[1] }, { ...valid[2], duration: 15 }], 60, 60), /does not end/i);
 });

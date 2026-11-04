@@ -1,12 +1,16 @@
 import crypto from "node:crypto";
 import path from "node:path";
-import { mkdir, readdir, realpath, rename, rm, stat } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { pipeline } from "node:stream/promises";
+import { Writable } from "node:stream";
 import { MIXES_DIRECTORY, MINIMUM_MIX_DURATION_SECONDS } from "./mixes.js";
 import { probeMedia, SpawnProcessRunner, VISUAL_ASSETS_DIRECTORY } from "./video.js";
 
 export const COMPILATION_VIDEOS_DIRECTORY = "compilation-videos";
 const WIDTH = 1920;
 const HEIGHT = 1080;
+const PROVENANCE_FILENAME = "compilation-video-exports.json";
 
 export class CompilationVideoService {
   constructor(outputDirectory, dependencies = {}) {
@@ -21,15 +25,19 @@ export class CompilationVideoService {
     this.minimumSourceDuration = dependencies.minimumSourceDuration ?? MINIMUM_MIX_DURATION_SECONDS;
     this.toleranceSeconds = dependencies.toleranceSeconds ?? 1.5;
     this.randomUUID = dependencies.randomUUID ?? crypto.randomUUID;
+    this.mixStore = dependencies.mixStore;
     this.fs = {
-      mkdir: dependencies.mkdir ?? mkdir, readdir: dependencies.readdir ?? readdir,
+      mkdir: dependencies.mkdir ?? mkdir, readFile: dependencies.readFile ?? readFile, readdir: dependencies.readdir ?? readdir,
       rm: dependencies.rm ?? rm, stat: dependencies.stat ?? stat,
+      writeFile: dependencies.writeFile ?? writeFile, rename: dependencies.rename ?? rename,
       publish: dependencies.publish ?? ((source, destination) => rename(source, destination)),
       realpath: dependencies.realpath ?? realpath,
     };
     this.available = false;
     this.error = undefined;
     this.active = false;
+    this.provenancePath = path.join(this.outputDirectory, PROVENANCE_FILENAME);
+    this.provenance = [];
   }
 
   async initialize() {
@@ -43,6 +51,8 @@ export class CompilationVideoService {
         await this.fs.rm(path.join(this.exportsDirectory, entry.name), { force: true });
       }
     }
+    try { const stored = JSON.parse(await this.fs.readFile(this.provenancePath, "utf8")); if (stored?.version !== 1 || !Array.isArray(stored.exports)) throw new Error("Unsupported provenance format."); this.provenance = stored.exports; }
+    catch (error) { if (error?.code !== "ENOENT") throw new CompilationRenderError(`Compilation provenance could not be loaded: ${error.message}`); }
     try {
       await this.runner.check(this.ffmpeg);
       await this.runner.check(this.ffprobe);
@@ -56,6 +66,7 @@ export class CompilationVideoService {
   }
 
   status() { return { available: this.available, error: this.error, active: this.active }; }
+  getExportProvenance(filename) { const record = this.provenance.find((item) => item.filename === filename); return record ? structuredClone(record) : undefined; }
 
   async listSources() {
     return {
@@ -87,6 +98,7 @@ export class CompilationVideoService {
     if (!safeFilename(outputFilename, ".mp4")) throw new CompilationValidationError("Invalid compilation video filename.");
     this.active = true;
     let temporaryPath;
+    let unpublishedFinalPath;
     try {
       const inputs = await this.#inspectInputs(masterFilename, assetFilename);
       const approvedPlan = {
@@ -109,10 +121,16 @@ export class CompilationVideoService {
       if (await exists(this.fs.stat, finalPath)) throw new CompilationConflictError("The output filename became occupied. Nothing was overwritten.");
       try { await this.fs.publish(temporaryPath, finalPath); }
       catch (error) { if (error?.code === "EEXIST") throw new CompilationConflictError("The output filename became occupied. Nothing was overwritten."); throw error; }
+      unpublishedFinalPath = finalPath;
       await this.fs.rm(temporaryPath, { force: true }).catch(() => {});
+      const mixProvenance = this.#masterProvenance(masterFilename);
+      const record = { filename: outputFilename, outputFingerprint: await hashFile(finalPath), masterFilename, assetFilename, duration: inputs.audioDuration, mixId: mixProvenance?.mixId, mixExportSnapshot: mixProvenance?.snapshot, timeline: mixProvenance?.timeline, createdAt: new Date().toISOString() };
+      try { await this.#persistProvenance(record); } catch (error) { await this.fs.rm(finalPath, { force: true }).catch(() => {}); throw error; }
+      unpublishedFinalPath = undefined;
       return { filename: outputFilename, duration: inputs.audioDuration, downloadUrl: `/compilation-videos/${encodeURIComponent(outputFilename)}` };
     } catch (error) {
       if (temporaryPath) await this.fs.rm(temporaryPath, { force: true }).catch(() => {});
+      if (unpublishedFinalPath) await this.fs.rm(unpublishedFinalPath, { force: true }).catch(() => {});
       throw error;
     } finally { this.active = false; }
   }
@@ -155,6 +173,17 @@ export class CompilationVideoService {
 
   #assertAvailable() { if (!this.available) throw new CompilationUnavailableError(this.error ?? "FFmpeg/FFprobe is unavailable."); }
   #exportPath(filename) { return safeChild(this.exportsDirectory, filename, ".mp4"); }
+  #masterProvenance(filename) {
+    if (!this.mixStore) return undefined;
+    const matches = this.mixStore.list().flatMap((mix) => (mix.exports ?? []).filter((item) => item.filename === filename).map((item) => ({ mixId: mix.id, snapshot: item.snapshot, timeline: item.timeline })));
+    return matches.length === 1 ? matches[0] : undefined;
+  }
+  async #persistProvenance(record) {
+    const next = [...this.provenance.filter((item) => item.filename !== record.filename), record];
+    const temporary = path.join(this.outputDirectory, `.compilation-provenance-${this.randomUUID()}.tmp`);
+    try { await this.fs.writeFile(temporary, `${JSON.stringify({ version: 1, exports: next }, null, 2)}\n`, { encoding: "utf8", flag: "wx" }); await this.fs.rename(temporary, this.provenancePath); this.provenance = next; }
+    catch (error) { await this.fs.rm(temporary, { force: true }).catch(() => {}); throw new CompilationRenderError("The completed video could not be linked to its source mix, so it was not published."); }
+  }
 }
 
 export function buildCompilationFfmpegArgs({ audioPath, assetPath, outputPath, sourceDuration }) {
@@ -204,6 +233,7 @@ function safeChild(directory, filename, extension) { if (!safeFilename(filename,
 async function exists(statFn, filePath) { try { await statFn(filePath); return true; } catch (error) { if (error?.code === "ENOENT") return false; throw error; } }
 async function assertFile(statFn, filePath, message) { try { const details = await statFn(filePath); if (!details.isFile?.() || details.size <= 0) throw new Error(); return details; } catch { throw new CompilationNotFoundError(message); } }
 async function assertRealFileInside(realpathFn, filePath, directory, message) { try { const [resolvedFile, resolvedDirectory] = await Promise.all([realpathFn(filePath), realpathFn(directory)]); if (path.dirname(resolvedFile) !== resolvedDirectory) throw new Error(); } catch { throw new CompilationValidationError(message); } }
+async function hashFile(filePath) { const hash = crypto.createHash("sha256"); await pipeline(createReadStream(filePath), new Writable({ write(chunk, _encoding, callback) { hash.update(chunk); callback(); } })); return hash.digest("hex"); }
 function slug(value) { return String(value ?? "").normalize("NFKD").replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-|-$/g, "").toLowerCase().slice(0, 160); }
 function formatDuration(seconds) { return `${Math.floor(seconds / 60)}:${String(Math.round(seconds % 60)).padStart(2, "0")}`; }
 

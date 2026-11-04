@@ -48,6 +48,7 @@ try {
   const compilationVideoService = new CompilationVideoService(outputDirectory, {
     ffmpeg: process.env.FFMPEG_PATH || "ffmpeg",
     ffprobe: process.env.FFPROBE_PATH || "ffprobe",
+    mixStore,
   });
   const compilationVideoStatus = await compilationVideoService.initialize();
   if (!compilationVideoStatus.available) console.warn(compilationVideoStatus.error);
@@ -62,7 +63,7 @@ try {
   const youtubeUploadService = new YouTubeUploadService(outputDirectory, youtubeService, youtubeUploadStore, { ffprobe: process.env.FFPROBE_PATH || "ffprobe" });
   await youtubeUploadService.initialize();
   const youtubeMetadataStore = new YouTubeMetadataStore(outputDirectory);
-  const youtubeMetadataService = new YouTubeMetadataService({ connection: youtubeService, store: youtubeMetadataStore, projects, library, mixStore, mixService, uploadService: youtubeUploadService });
+  const youtubeMetadataService = new YouTubeMetadataService({ connection: youtubeService, store: youtubeMetadataStore, projects, library, mixStore, mixService, uploadService: youtubeUploadService, compilationVideoService });
   await youtubeMetadataService.initialize();
   const app = createApp({
     client,

@@ -66,7 +66,7 @@ test("profile edits persist and generated approval invalidates on source or proj
   fingerprint = "b".repeat(64); const changed = await service.generate({ projectId: "project", mixId: "mix", sourceFilename: "mix.mp4" }); assert.notEqual(changed.inputSnapshot, generated.inputSnapshot);
 });
 
-test("rejects mismatched and legacy MP4 provenance instead of claiming authoritative chapters", async (t) => {
+test("rejects conflicting provenance but generates legacy metadata without guessed chapters", async (t) => {
   const root = await mkdtemp(path.join(process.cwd(), ".test-tmp-youtube-provenance-")); t.after(() => rm(root, { recursive: true, force: true })); const fingerprint = "c".repeat(64);
   const timeline = [0, 20, 40].map((startSeconds, index) => ({ trackId: `t${index}`, title: `T${index}`, startSeconds, duration: index === 2 ? 20 : 30 }));
   let provenance;
@@ -74,7 +74,9 @@ test("rejects mismatched and legacy MP4 provenance instead of claiming authorita
   await service.initialize(); await service.saveProfile({ titleTemplate: "{project}" });
   provenance = { outputFingerprint: fingerprint, masterFilename: "master.wav", duration: 60, mixId: "other", mixExportSnapshot: "snap", timeline };
   await assert.rejects(() => service.generate({ projectId: "p", mixId: "selected", sourceFilename: "video.mp4" }), /different audio mix/);
-  provenance = undefined; await assert.rejects(() => service.generate({ projectId: "p", mixId: "selected", sourceFilename: "legacy.mp4" }), /predates reliable mix provenance/);
+  provenance = { outputFingerprint: "d".repeat(64) }; await assert.rejects(() => service.generate({ projectId: "p", mixId: "selected", sourceFilename: "changed.mp4" }), /fingerprint conflicts/);
+  provenance = undefined; const fallback = await service.generate({ projectId: "p", mixId: "selected", sourceFilename: "legacy.mp4" }); assert.equal(fallback.chapters, ""); assert.equal(fallback.timeline.length, 0); assert.match(fallback.warnings.join(" "), /No saved MP4 provenance.*no timestamps were guessed/i); assert.doesNotMatch(fallback.description, /00:00/);
+  provenance = { outputFingerprint: fingerprint, masterFilename: "master.wav", duration: 60, mixId: "selected", mixExportSnapshot: "snap", timeline }; await assert.rejects(() => service.approve({ projectId: "p", mixId: "selected", sourceFilename: "legacy.mp4", inputSnapshot: fallback.inputSnapshot, title: fallback.title, description: fallback.description, tags: fallback.tags }), /changed/);
 });
 
 test("completed timeline validates the final chapter and exact video-duration boundary", () => {

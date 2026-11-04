@@ -9,4 +9,5 @@ test("compilation confirmation identifies every approved input, output property,
   assert.match(message, /industrial\.wav/); assert.match(message, /harbour\.mp4/); assert.match(message, /61:40\.50/);
   assert.match(message, /H\.264, 1920 × 1080, yuv420p/); assert.match(message, /AAC 320 kbps, 48 kHz stereo/);
   assert.match(message, /FFmpeg will start only after this confirmation/); assert.match(message, /nothing will be uploaded/);
+  assert.match(message, /WARNING.*chapter provenance incomplete/i); assert.match(message, /will not create automatic chapters/i);
 });

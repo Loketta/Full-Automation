@@ -75,6 +75,33 @@ export class MixStore {
     });
   }
 
+  recoverExport(id, filename, recovered) {
+    return this.#exclusive(async () => {
+      await this.#mutateAndPersist((next) => {
+        const mix = next.mixes.find((candidate) => candidate.id === id); if (!mix) throw new MixNotFoundError();
+        const associations = next.mixes.flatMap((candidate) => candidate.exports.filter((item) => item.filename === filename).map((item) => ({ mixId: candidate.id, record: item })));
+        if (associations.some((item) => item.mixId !== id) || associations.length > 1) throw new MixConflictError("This WAV filename has conflicting export associations. Recovery was not saved.");
+        const current = associations[0]?.record;
+        if (JSON.stringify(current ?? null) !== JSON.stringify(recovered.expectedRecord ?? null)) throw new MixConflictError("The existing WAV export record changed after recovery was reviewed. Review it again.");
+        if (current?.snapshot && Array.isArray(current.timeline) && current.timeline.length) throw new MixConflictError("This WAV export already has a verified snapshot and timeline. Recovery cannot replace it.");
+        if (Array.isArray(current?.timeline) && current.timeline.length && JSON.stringify(current.timeline) !== JSON.stringify(recovered.timeline)) throw new MixConflictError("The existing WAV timeline conflicts with the proposed recovery.");
+        if (Number.isFinite(current?.duration) && Math.abs(current.duration - recovered.duration) > 1.5) throw new MixConflictError("The existing WAV duration conflicts with the proposed recovery.");
+        if (current?.evidence && !evidenceConsistent(current.evidence, recovered.evidence)) throw new MixConflictError("The existing WAV evidence conflicts with the proposed recovery.");
+        const historyEntry = { recoveredAt: this.now().toISOString(), priorRecord: current ? structuredClone(current) : null, evidence: recovered.evidence };
+        const { expectedRecord: _expectedRecord, ...proposed } = recovered;
+        if (current) {
+          if (!current.snapshot) current.snapshot = proposed.snapshot;
+          if (!Array.isArray(current.timeline) || !current.timeline.length) current.timeline = proposed.timeline;
+          if (!Number.isFinite(current.duration)) current.duration = proposed.duration;
+          if (!current.evidence) current.evidence = proposed.evidence;
+          current.recovered = true; current.recoveryHistory = [...(current.recoveryHistory ?? []), historyEntry];
+        } else mix.exports.push({ ...proposed, filename, recoveryHistory: [historyEntry] });
+        mix.updatedAt = this.now().toISOString();
+      });
+      return this.get(id);
+    });
+  }
+
   async #mutateAndPersist(mutate) {
     const next = structuredClone(this.data);
     mutate(next);
@@ -330,6 +357,11 @@ function publicInspection(inspected, minimumDuration) {
 }
 function validateCrossfade(value) { const n = Number(value); if (!Number.isFinite(n) || n < 0 || n > 20) throw new MixValidationError("Crossfade must be between 0 and 20 seconds."); return n; }
 function approvalSnapshot(mix, tracks, transitions, summary) { return crypto.createHash("sha256").update(JSON.stringify({ id: mix.id, title: mix.title, updatedAt: mix.updatedAt, tracks: tracks.map((t) => ({ id: t.id, filename: t.filename, duration: t.duration, size: t.size, mtimeMs: t.mtimeMs })), transitions, summary })).digest("hex"); }
+function evidenceConsistent(existing, proposed) {
+  if (Array.isArray(existing)) return Array.isArray(proposed) && existing.length === proposed.length && existing.every((value, index) => evidenceConsistent(value, proposed[index]));
+  if (existing && typeof existing === "object") return proposed && typeof proposed === "object" && Object.entries(existing).every(([key, value]) => evidenceConsistent(value, proposed[key]));
+  return Object.is(existing, proposed);
+}
 function isStoredMix(mix) { return mix && typeof mix.id === "string" && typeof mix.title === "string" && Array.isArray(mix.trackIds) && Array.isArray(mix.transitions) && Array.isArray(mix.exports) && typeof mix.updatedAt === "string"; }
 function safeFilename(filename, extension) { return typeof filename === "string" && filename.length <= 180 && path.basename(filename) === filename && path.extname(filename).toLowerCase() === extension && !filename.startsWith(".") && !/[<>:"/\\|?*\x00-\x1f]/.test(filename); }
 function safeChild(directory, filename, extension) { if (!safeFilename(filename, extension)) throw new MixValidationError("Invalid media filename."); const resolved = path.resolve(directory, filename); if (path.dirname(resolved) !== path.resolve(directory)) throw new MixValidationError("Media path must remain inside its designated directory."); return resolved; }

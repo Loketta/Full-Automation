@@ -4,7 +4,7 @@ import { createReadStream } from "node:fs";
 import { mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { pipeline } from "node:stream/promises";
 import { Writable } from "node:stream";
-import { MIXES_DIRECTORY, MINIMUM_MIX_DURATION_SECONDS } from "./mixes.js";
+import { buildMixTimeline, MIXES_DIRECTORY, MINIMUM_MIX_DURATION_SECONDS } from "./mixes.js";
 import { probeMedia, SpawnProcessRunner, VISUAL_ASSETS_DIRECTORY } from "./video.js";
 
 export const COMPILATION_VIDEOS_DIRECTORY = "compilation-videos";
@@ -26,6 +26,7 @@ export class CompilationVideoService {
     this.toleranceSeconds = dependencies.toleranceSeconds ?? 1.5;
     this.randomUUID = dependencies.randomUUID ?? crypto.randomUUID;
     this.mixStore = dependencies.mixStore;
+    this.mixService = dependencies.mixService;
     this.fs = {
       mkdir: dependencies.mkdir ?? mkdir, readFile: dependencies.readFile ?? readFile, readdir: dependencies.readdir ?? readdir,
       rm: dependencies.rm ?? rm, stat: dependencies.stat ?? stat,
@@ -67,6 +68,38 @@ export class CompilationVideoService {
 
   status() { return { available: this.available, error: this.error, active: this.active }; }
   getExportProvenance(filename) { const record = this.provenance.find((item) => item.filename === filename); return record ? structuredClone(record) : undefined; }
+  diagnoseMasterProvenance(filename) {
+    if (!this.mixStore) return { status: "incomplete", verified: false, message: "Mix storage is unavailable, so automatic chapter provenance cannot be recorded." };
+    const matches = this.mixStore.list().flatMap((mix) => (mix.exports ?? []).filter((item) => item.filename === filename).map((item) => ({ mixId: mix.id, snapshot: item.snapshot, timeline: item.timeline })));
+    if (!matches.length) return { status: "missing", verified: false, message: "No saved WAV export record matches this master. The MP4 can be rendered, but automatic chapters will be unavailable." };
+    if (matches.length > 1) return { status: "ambiguous", verified: false, message: `${matches.length} saved WAV export records use this filename. Selective recovery is required before chapters can be trusted.` };
+    const match = matches[0]; if (!match.snapshot) return { status: "incomplete", verified: false, message: "The matching WAV export has no retained mix snapshot. Automatic chapters will be unavailable." };
+    if (!Array.isArray(match.timeline) || !match.timeline.length) return { status: "incomplete", verified: false, message: "The matching WAV export has no retained timeline. Automatic chapters will be unavailable." };
+    return { status: "verified", verified: true, message: "The WAV has a unique saved mix snapshot and timeline.", ...structuredClone(match) };
+  }
+
+  async planMasterRecovery({ masterFilename, mixId }) {
+    if (!this.mixStore || !this.mixService) throw new CompilationUnavailableError("Mix recovery is unavailable because the mix services are not configured.");
+    if (!safeFilename(masterFilename, ".wav")) throw new CompilationValidationError("Invalid WAV master filename."); const mix = this.mixStore.get(mixId); const associations = this.mixStore.list().flatMap((candidate) => (candidate.exports ?? []).filter((item) => item.filename === masterFilename).map((item) => ({ mixId: candidate.id, record: item })));
+    if (associations.some((item) => item.mixId !== mixId) || associations.length > 1) throw new CompilationConflictError("This WAV filename has conflicting export associations across mixes. Recovery was refused.");
+    const existingRecord = associations[0]?.record; if (existingRecord?.snapshot && Array.isArray(existingRecord.timeline) && existingRecord.timeline.length) throw new CompilationConflictError("This WAV export already has a verified snapshot and timeline. Recovery cannot replace it.");
+    const preview = await this.mixService.preview({ trackIds: mix.trackIds, crossfadeSeconds: mix.crossfadeSeconds });
+    const rejected = preview.tracks.filter((track) => this.mixService.library.get(track.id).reviewStatus !== "Keep"); if (rejected.length) throw new CompilationValidationError(`Recovery requires accepted recordings: ${rejected.map((item) => item.title).join(", ")}.`);
+    const master = await this.#inspectMaster(masterFilename); if (Math.abs(master.duration - preview.expectedDuration) > this.toleranceSeconds) throw new CompilationConflictError(`The WAV duration differs from the reconstructed mix by ${(master.duration - preview.expectedDuration).toFixed(3)} seconds. Recovery was not offered.`);
+    const timeline = buildMixTimeline(preview.tracks, preview.transitions); const evidence = { mixId, mixUpdatedAt: mix.updatedAt, trackIds: preview.tracks.map((item) => item.id), sourceFiles: preview.tracks.map((item) => ({ id: item.id, filename: item.filename, duration: item.duration })), crossfadeSeconds: mix.crossfadeSeconds, masterFilename, masterDuration: master.duration, masterSize: master.stat.size, masterMtimeMs: master.stat.mtimeMs };
+    if (Array.isArray(existingRecord?.timeline) && existingRecord.timeline.length && JSON.stringify(existingRecord.timeline) !== JSON.stringify(timeline)) throw new CompilationConflictError("The existing WAV timeline conflicts with the reconstructed timeline. Recovery was refused.");
+    if (Number.isFinite(existingRecord?.duration) && Math.abs(existingRecord.duration - master.duration) > this.toleranceSeconds) throw new CompilationConflictError("The existing WAV duration conflicts with the inspected master. Recovery was refused.");
+    if (existingRecord?.evidence && !evidenceConsistent(existingRecord.evidence, evidence)) throw new CompilationConflictError("The existing WAV evidence conflicts with the reconstructed provenance. Recovery was refused.");
+    const plan = { mixId, masterFilename, expectedDuration: preview.expectedDuration, masterDuration: master.duration, timeline, evidence, existingRecord: existingRecord ? structuredClone(existingRecord) : null, message: "Track identities, saved order, crossfade settings, source durations and WAV duration agree. Review every chapter before accepting recovery." }; return { ...plan, snapshot: crypto.createHash("sha256").update(JSON.stringify(plan)).digest("hex") };
+  }
+  async approveMasterRecovery(input) { const plan = await this.planMasterRecovery(input); if (plan.snapshot !== input.snapshot) throw new CompilationConflictError("The WAV, mix, source recordings or existing export record changed. Review recovery again."); const recovered = { filename: plan.masterFilename, duration: plan.masterDuration, snapshot: `recovered:${plan.snapshot}`, timeline: plan.timeline, recovered: true, evidence: plan.evidence, expectedRecord: plan.existingRecord }; await this.mixStore.recoverExport(plan.mixId, plan.masterFilename, recovered); const { expectedRecord: _expectedRecord, ...result } = recovered; return { ...result, mixId: plan.mixId }; }
+
+  async planExistingVideoRecovery({ filename, masterFilename, mixId }) {
+    if (!safeFilename(filename, ".mp4")) throw new CompilationValidationError("Invalid compilation video filename."); const record = this.getExportProvenance(filename); if (!record) throw new CompilationNotFoundError("No retained MP4 provenance record exists. Matching filename or duration alone is insufficient for recovery."); if (record.masterFilename !== masterFilename) throw new CompilationConflictError("The retained MP4 record names a different WAV master. Recovery was refused."); if (!record.outputFingerprint) throw new CompilationConflictError("The retained MP4 record has no fingerprint. Recovery was refused.");
+    const master = this.diagnoseMasterProvenance(masterFilename); if (!master.verified || master.mixId !== mixId) throw new CompilationConflictError("Recover the selected WAV-to-mix timeline before associating this MP4."); const videoPath = this.#exportPath(filename); await assertFile(this.fs.stat, videoPath, "The selected compilation MP4 is missing or invalid."); const actualFingerprint = await hashFile(videoPath); if (actualFingerprint !== record.outputFingerprint) throw new CompilationConflictError("The MP4 fingerprint does not match its retained record. Recovery was refused."); const media = await this.probe(videoPath); const duration = media.duration ?? media.streams?.find((item) => item.codecType === "video")?.duration; if (!Number.isFinite(duration) || Math.abs(duration - record.duration) > this.toleranceSeconds) throw new CompilationConflictError("The MP4 duration does not match its retained render record. Recovery was refused.");
+    const plan = { filename, masterFilename, mixId, fingerprint: actualFingerprint, duration, mixExportSnapshot: master.snapshot, timeline: master.timeline, message: "The retained MP4 record, fingerprint and WAV identity agree with the recovered mix timeline." }; return { ...plan, snapshot: crypto.createHash("sha256").update(JSON.stringify(plan)).digest("hex") };
+  }
+  async approveExistingVideoRecovery(input) { const plan = await this.planExistingVideoRecovery(input); if (plan.snapshot !== input.snapshot) throw new CompilationConflictError("The MP4 or recovered WAV provenance changed. Review association again."); const current = this.getExportProvenance(plan.filename); const record = { ...current, mixId: plan.mixId, mixExportSnapshot: plan.mixExportSnapshot, timeline: plan.timeline, provenanceStatus: "verified", provenanceDiagnostic: "Explicitly recovered from retained MP4 fingerprint and verified WAV-to-mix evidence.", recoveryHistory: [...(current.recoveryHistory ?? []), { recoveredAt: new Date().toISOString(), mixId: plan.mixId, masterFilename: plan.masterFilename, fingerprint: plan.fingerprint }] }; await this.#persistProvenance(record); return structuredClone(record); }
 
   async listSources() {
     return {
@@ -82,12 +115,13 @@ export class CompilationVideoService {
     const base = slug(requestedTitle) || "compilation-video";
     let outputFilename = `${base}.mp4`;
     for (let suffix = 2; await exists(this.fs.stat, this.#exportPath(outputFilename)); suffix += 1) outputFilename = `${base}-${suffix}.mp4`;
-    const plan = {
+    const provenance = this.diagnoseMasterProvenance(masterFilename); const plan = {
       master: { filename: masterFilename, duration: inputs.audioDuration },
       asset: { filename: assetFilename, duration: inputs.visualDuration },
       expectedDuration: inputs.audioDuration,
       outputFilename,
       output: { container: "MP4", videoCodec: "H.264", audioCodec: "AAC 320 kbps", width: WIDTH, height: HEIGHT, pixelFormat: "yuv420p", sampleRate: 48000, channels: 2 },
+      provenance,
     };
     return { ...plan, snapshot: snapshot(plan, inputs) };
   }
@@ -101,12 +135,13 @@ export class CompilationVideoService {
     let unpublishedFinalPath;
     try {
       const inputs = await this.#inspectInputs(masterFilename, assetFilename);
-      const approvedPlan = {
+      const provenance = this.diagnoseMasterProvenance(masterFilename); const approvedPlan = {
         master: { filename: masterFilename, duration: inputs.audioDuration },
         asset: { filename: assetFilename, duration: inputs.visualDuration },
         expectedDuration: inputs.audioDuration,
         outputFilename,
         output: { container: "MP4", videoCodec: "H.264", audioCodec: "AAC 320 kbps", width: WIDTH, height: HEIGHT, pixelFormat: "yuv420p", sampleRate: 48000, channels: 2 },
+        provenance,
       };
       if (snapshot(approvedPlan, inputs) !== approvedSnapshot) throw new CompilationConflictError("The WAV master, visual asset, or approved plan changed. Review a new plan before rendering.");
       const finalPath = this.#exportPath(outputFilename);
@@ -123,8 +158,8 @@ export class CompilationVideoService {
       catch (error) { if (error?.code === "EEXIST") throw new CompilationConflictError("The output filename became occupied. Nothing was overwritten."); throw error; }
       unpublishedFinalPath = finalPath;
       await this.fs.rm(temporaryPath, { force: true }).catch(() => {});
-      const mixProvenance = this.#masterProvenance(masterFilename);
-      const record = { filename: outputFilename, outputFingerprint: await hashFile(finalPath), masterFilename, assetFilename, duration: inputs.audioDuration, mixId: mixProvenance?.mixId, mixExportSnapshot: mixProvenance?.snapshot, timeline: mixProvenance?.timeline, createdAt: new Date().toISOString() };
+      const mixProvenance = provenance.verified ? provenance : undefined;
+      const record = { filename: outputFilename, outputFingerprint: await hashFile(finalPath), masterFilename, assetFilename, duration: inputs.audioDuration, mixId: mixProvenance?.mixId, mixExportSnapshot: mixProvenance?.snapshot, timeline: mixProvenance?.timeline, provenanceStatus: provenance.status, provenanceDiagnostic: provenance.message, createdAt: new Date().toISOString() };
       try { await this.#persistProvenance(record); } catch (error) { await this.fs.rm(finalPath, { force: true }).catch(() => {}); throw error; }
       unpublishedFinalPath = undefined;
       return { filename: outputFilename, duration: inputs.audioDuration, downloadUrl: `/compilation-videos/${encodeURIComponent(outputFilename)}` };
@@ -161,6 +196,8 @@ export class CompilationVideoService {
     return { audioPath, assetPath, audioDuration, visualDuration, audioStat, assetStat };
   }
 
+  async #inspectMaster(masterFilename) { const filePath = safeChild(this.mixesDirectory, masterFilename, ".wav"); const statValue = await assertFile(this.fs.stat, filePath, "The selected WAV master is missing or invalid."); await assertRealFileInside(this.fs.realpath, filePath, this.mixesDirectory, "The selected WAV master must remain inside the mixes directory."); const media = await this.probe(filePath); const audio = media.streams?.find((item) => item.codecType === "audio"); const duration = audio?.duration ?? media.duration; if (!audio || !Number.isFinite(duration) || duration <= 0) throw new CompilationValidationError("The selected WAV master has no valid audio duration."); return { duration, stat: statValue }; }
+
   async #listFiles(directory, extension) {
     const result = [];
     for (const entry of await this.fs.readdir(directory, { withFileTypes: true })) {
@@ -173,11 +210,6 @@ export class CompilationVideoService {
 
   #assertAvailable() { if (!this.available) throw new CompilationUnavailableError(this.error ?? "FFmpeg/FFprobe is unavailable."); }
   #exportPath(filename) { return safeChild(this.exportsDirectory, filename, ".mp4"); }
-  #masterProvenance(filename) {
-    if (!this.mixStore) return undefined;
-    const matches = this.mixStore.list().flatMap((mix) => (mix.exports ?? []).filter((item) => item.filename === filename).map((item) => ({ mixId: mix.id, snapshot: item.snapshot, timeline: item.timeline })));
-    return matches.length === 1 ? matches[0] : undefined;
-  }
   async #persistProvenance(record) {
     const next = [...this.provenance.filter((item) => item.filename !== record.filename), record];
     const temporary = path.join(this.outputDirectory, `.compilation-provenance-${this.randomUUID()}.tmp`);
@@ -227,6 +259,11 @@ function snapshot(plan, inputs) {
     plan, audio: { size: inputs.audioStat.size, mtimeMs: inputs.audioStat.mtimeMs },
     asset: { size: inputs.assetStat.size, mtimeMs: inputs.assetStat.mtimeMs },
   })).digest("hex");
+}
+function evidenceConsistent(existing, proposed) {
+  if (Array.isArray(existing)) return Array.isArray(proposed) && existing.length === proposed.length && existing.every((value, index) => evidenceConsistent(value, proposed[index]));
+  if (existing && typeof existing === "object") return proposed && typeof proposed === "object" && Object.entries(existing).every(([key, value]) => evidenceConsistent(value, proposed[key]));
+  return Object.is(existing, proposed);
 }
 function safeFilename(filename, extension) { return typeof filename === "string" && filename.length <= 180 && path.basename(filename) === filename && path.extname(filename).toLowerCase() === extension && !filename.startsWith(".") && !/[<>:"/\\|?*\x00-\x1f]/.test(filename); }
 function safeChild(directory, filename, extension) { if (!safeFilename(filename, extension)) throw new CompilationValidationError("Unsafe media filename."); const resolved = path.resolve(directory, filename); if (path.dirname(resolved) !== path.resolve(directory)) throw new CompilationValidationError("Media path escaped its designated directory."); return resolved; }

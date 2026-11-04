@@ -11,6 +11,7 @@ test("metadata UI keeps import and generation separate from the explicitly confi
   assert.match(html, /Compilation variables/); assert.match(html, /Individual-track variables/); assert.match(html, /Metadata type/); assert.match(html, /Generated project track/);
   assert.match(app, /generate-track/); assert.match(app, /Selected genre profiles/);
   assert.match(app, /youtubeMetadataUse\.disabled = individual/);
+  assert.match(html, /Recover legacy chapter provenance/); assert.match(html, /Review WAV recovery/); assert.match(html, /Review selected MP4 association/); assert.match(app, /No verified chapters are available; no timestamps were guessed/); assert.match(app, /Provenance:/);
   assert.match(app, /beyond-the-blackwall\.json/); assert.match(app, /analysis-import/); assert.match(app, /existing profile fields are unchanged/); assert.doesNotMatch(app, /Gemini|billable requests|metadata\/ai/);
   const generate = app.slice(app.indexOf("async function generateYouTubeMetadata"), app.indexOf("async function approveYouTubeMetadata")); assert.doesNotMatch(generate, /\/api\/youtube\/uploads/);
   assert.match(generate, /catch \(error\).*youtubeMetadataStatus\.textContent = error\.message/s);

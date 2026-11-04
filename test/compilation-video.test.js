@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import path from "node:path";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import {
   buildCompilationFfmpegArgs, CompilationConflictError, CompilationVideoService, validateCompilationOutput,
 } from "../src/compilation-video.js";
@@ -63,6 +64,36 @@ test("completed exports persist MP4-to-WAV-to-mix provenance", async (t) => {
   await values.service.render({ masterFilename: "master.wav", assetFilename: "harbour.mp4", outputFilename: plan.outputFilename, snapshot: plan.snapshot });
   const record = values.service.getExportProvenance("provenance.mp4"); assert.equal(record.masterFilename, "master.wav"); assert.equal(record.mixId, "mix-1"); assert.equal(record.mixExportSnapshot, "mix-snapshot"); assert.deepEqual(record.timeline, timeline); assert.match(record.outputFingerprint, /^[a-f0-9]{64}$/);
   const restarted = new CompilationVideoService(values.output, { runner: values.runner, probe: async () => ({}), mixStore }); await restarted.initialize(); assert.equal(restarted.getExportProvenance("provenance.mp4").mixId, "mix-1");
+});
+
+test("diagnoses missing, duplicate and incomplete WAV provenance", async (t) => {
+  const missing = await fixture(t, { mixStore: { list: () => [] } }); assert.equal((await missing.service.plan({ masterFilename: "master.wav", assetFilename: "harbour.mp4", title: "Missing" })).provenance.status, "missing");
+  const duplicate = await fixture(t, { mixStore: { list: () => [{ id: "a", exports: [{ filename: "master.wav" }] }, { id: "b", exports: [{ filename: "master.wav" }] }] } }); assert.equal(duplicate.service.diagnoseMasterProvenance("master.wav").status, "ambiguous");
+  const incomplete = await fixture(t, { mixStore: { list: () => [{ id: "a", exports: [{ filename: "master.wav", snapshot: "old" }] }] } }); assert.match(incomplete.service.diagnoseMasterProvenance("master.wav").message, /no retained timeline/i);
+});
+
+test("master recovery preview rejects cross-mix associations and verified exports", async (t) => {
+  const tracks = [{ id: "a", title: "Alpha", filename: "a.mp3", duration: 1850.125 }, { id: "b", title: "Beta", filename: "b.mp3", duration: 1850.125 }];
+  const mixService = { library: { get: () => ({ reviewStatus: "Keep" }) }, async preview() { return { tracks, transitions: [{ type: "concat", duration: 0 }], expectedDuration: 3700.25 }; } };
+  const mixes = [{ id: "mix", trackIds: ["a", "b"], crossfadeSeconds: 0, updatedAt: "saved", exports: [{ filename: "master.wav", snapshot: "legacy" }] }, { id: "other", exports: [{ filename: "master.wav" }] }];
+  const conflicting = await fixture(t, { mixService, mixStore: { list: () => structuredClone(mixes), get: () => structuredClone(mixes[0]) } });
+  await assert.rejects(() => conflicting.service.planMasterRecovery({ masterFilename: "master.wav", mixId: "mix" }), /conflicting export associations/i);
+  mixes.pop(); mixes[0].exports[0].timeline = [{ trackId: "a", title: "Alpha", startSeconds: 0, duration: 3700.25 }];
+  const verified = await fixture(t, { mixService, mixStore: { list: () => structuredClone(mixes), get: () => structuredClone(mixes[0]) } });
+  await assert.rejects(() => verified.service.planMasterRecovery({ masterFilename: "master.wav", mixId: "mix" }), /already has a verified snapshot and timeline/i);
+  delete mixes[0].exports[0].timeline; mixes[0].exports[0].evidence = { mixId: "different-mix" };
+  const inconsistent = await fixture(t, { mixService, mixStore: { list: () => structuredClone(mixes), get: () => structuredClone(mixes[0]) } });
+  await assert.rejects(() => inconsistent.service.planMasterRecovery({ masterFilename: "master.wav", mixId: "mix" }), /evidence conflicts/i);
+});
+
+test("recovers a WAV timeline only from matching identities, order, crossfades and duration", async (t) => {
+  const tracks = [{ id: "a", title: "Alpha", filename: "a.mp3", duration: 1850.125 }, { id: "b", title: "Beta", filename: "b.mp3", duration: 1850.125 }]; let recovered;
+  const mix = { id: "mix", title: "Legacy", trackIds: ["a", "b"], crossfadeSeconds: 0, updatedAt: "saved", exports: [{ filename: "master.wav", snapshot: "old" }] }; const mixStore = { list: () => [mix], get: () => structuredClone(mix), async recoverExport(_id, _filename, value) { recovered = value; mix.exports[0] = value; } }; const mixService = { library: { get: () => ({ reviewStatus: "Keep" }) }, async preview() { return { tracks, transitions: [{ type: "concat", duration: 0 }], expectedDuration: 3700.25 }; } };
+  const values = await fixture(t, { mixStore, mixService }); const plan = await values.service.planMasterRecovery({ masterFilename: "master.wav", mixId: "mix" }); assert.equal(plan.timeline[1].startSeconds, 1850.125); assert.match(plan.message, /Review every chapter/); await assert.rejects(() => values.service.approveMasterRecovery({ ...plan, snapshot: "stale" }), /changed/); await values.service.approveMasterRecovery(plan); assert.equal(recovered.recovered, true); assert.equal(recovered.timeline.length, 2);
+});
+
+test("recovers an existing MP4 only from retained fingerprint and verified WAV evidence", async (t) => {
+  const root = await mkdtemp(path.join(process.cwd(), ".test-tmp-existing-video-recovery-")); t.after(() => rm(root, { recursive: true, force: true })); const output = path.join(root, "output"); await Promise.all([mkdir(path.join(output, "mixes"), { recursive: true }), mkdir(path.join(output, "visual-assets"), { recursive: true }), mkdir(path.join(output, "compilation-videos"), { recursive: true })]); const bytes = "existing mp4"; await writeFile(path.join(output, "compilation-videos", "legacy.mp4"), bytes); const fingerprint = crypto.createHash("sha256").update(bytes).digest("hex"); const timeline = [{ trackId: "a", title: "Alpha", startSeconds: 0, duration: 60 }]; const mixStore = { list: () => [{ id: "mix", exports: [{ filename: "master.wav", snapshot: "recovered", timeline }] }] }; await writeFile(path.join(output, "compilation-video-exports.json"), JSON.stringify({ version: 1, exports: [{ filename: "legacy.mp4", masterFilename: "master.wav", outputFingerprint: fingerprint, duration: 60 }] })); const service = new CompilationVideoService(output, { mixStore, runner: { async check() {} }, probe: async () => ({ formatName: "mp4", duration: 60, streams: [{ codecType: "video", duration: 60 }, { codecType: "audio", duration: 60 }] }) }); await service.initialize(); const plan = await service.planExistingVideoRecovery({ filename: "legacy.mp4", masterFilename: "master.wav", mixId: "mix" }); await service.approveExistingVideoRecovery(plan); assert.equal(service.getExportProvenance("legacy.mp4").mixId, "mix"); await writeFile(path.join(output, "compilation-videos", "legacy.mp4"), "changed"); await assert.rejects(() => service.planExistingVideoRecovery({ filename: "legacy.mp4", masterFilename: "master.wav", mixId: "mix" }), /fingerprint/);
 });
 
 test("changing either approved source invalidates its snapshot before FFmpeg starts", async (t) => {

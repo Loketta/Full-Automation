@@ -164,6 +164,13 @@
         <button id="compilation-plan" type="button">Review assembly plan</button>
       </div>
       <div id="compilation-plan-details" class="compilation-plan-details"></div>
+      <details>
+        <summary>Recover legacy chapter provenance</summary>
+        <p class="track-meta">Recovery never changes the WAV or MP4. It requires accepted source recordings, saved order and crossfades, measured source durations and a WAV duration that agrees. Review and approve the proposed timeline before anything is saved.</p>
+        <label for="compilation-recovery-mix">Mix that produced this WAV</label><select id="compilation-recovery-mix"><option value="">Choose a mix</option></select>
+        <div class="track-actions"><button id="compilation-recovery-plan" class="secondary" type="button">Review WAV recovery</button><button id="compilation-video-recovery-plan" class="secondary" type="button">Review selected MP4 association</button></div>
+        <div id="compilation-recovery-details" class="compilation-plan-details"></div>
+      </details>
       <p id="compilation-status" role="status" aria-live="polite">Loading completed WAV masters and visual assets…</p>
     </section>
 

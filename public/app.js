@@ -65,6 +65,10 @@ const compilationRefresh = document.querySelector("#compilation-refresh");
 const compilationPlanButton = document.querySelector("#compilation-plan");
 const compilationPlanDetails = document.querySelector("#compilation-plan-details");
 const compilationStatus = document.querySelector("#compilation-status");
+const compilationRecoveryMix = document.querySelector("#compilation-recovery-mix");
+const compilationRecoveryPlanButton = document.querySelector("#compilation-recovery-plan");
+const compilationVideoRecoveryPlanButton = document.querySelector("#compilation-video-recovery-plan");
+const compilationRecoveryDetails = document.querySelector("#compilation-recovery-details");
 const youtubeChannel = document.querySelector("#youtube-channel");
 const youtubeConnect = document.querySelector("#youtube-connect");
 const youtubeDisconnect = document.querySelector("#youtube-disconnect");
@@ -118,6 +122,8 @@ let selectedBatchProjectId = "";
 let selectedBatchTrackIds = [];
 let batchActionsBlocked = false;
 let approvedCompilationPlan;
+let approvedMasterRecovery;
+let approvedVideoRecovery;
 let youtubeAuthPoll;
 let approvedYouTubeUploadPlan;
 let youtubeUploadPoll;
@@ -182,6 +188,8 @@ loadYouTubeMetadata();
 compilationRefresh.addEventListener("click", loadCompilationSources);
 for (const input of [compilationMaster, compilationAsset, compilationTitle]) input.addEventListener("input", invalidateCompilationPlan);
 compilationPlanButton.addEventListener("click", reviewCompilationPlan);
+compilationRecoveryPlanButton.addEventListener("click", reviewMasterRecovery);
+compilationVideoRecoveryPlanButton.addEventListener("click", reviewVideoRecovery);
 youtubeConnect.addEventListener("click", connectYouTube);
 youtubeDisconnect.addEventListener("click", disconnectYouTube);
 youtubeUploadPlanButton.addEventListener("click", reviewYouTubeUploadPlan);
@@ -1083,6 +1091,7 @@ async function loadMixes(selectedId = currentMixId) {
     const data = await apiJson("/api/mixes");
     mixes = data.mixes;
     refreshYouTubeMetadataSelectors();
+    const recoverySelection = compilationRecoveryMix.value; compilationRecoveryMix.replaceChildren(new Option("Choose a mix", ""), ...mixes.map((mix) => new Option(mix.title, mix.id))); if (mixes.some((mix) => mix.id === recoverySelection)) compilationRecoveryMix.value = recoverySelection;
     mixSelect.replaceChildren(new Option("New mix", ""));
     for (const mix of mixes) mixSelect.append(new Option(mix.title, mix.id));
     if (selectedId && mixes.some((mix) => mix.id === selectedId)) {
@@ -1306,11 +1315,11 @@ async function reviewCompilationPlan() {
     approvedCompilationPlan = data.plan;
     const plan = data.plan;
     const summary = document.createElement("p");
-    summary.textContent = `WAV: ${plan.master.filename} (${formatCompilationDuration(plan.master.duration)}) · Visual: ${plan.asset.filename} (${formatCompilationDuration(plan.asset.duration)} per loop) · Expected: ${formatCompilationDuration(plan.expectedDuration)} · H.264/AAC, 1920 × 1080, yuv420p, 48 kHz stereo · Destination: ${plan.outputFilename}`;
+    summary.textContent = `WAV: ${plan.master.filename} (${formatCompilationDuration(plan.master.duration)}) · Visual: ${plan.asset.filename} (${formatCompilationDuration(plan.asset.duration)} per loop) · Expected: ${formatCompilationDuration(plan.expectedDuration)} · Provenance: ${plan.provenance.status} — ${plan.provenance.message} · H.264/AAC, 1920 × 1080, yuv420p, 48 kHz stereo · Destination: ${plan.outputFilename}`;
     const render = document.createElement("button"); render.type = "button"; render.textContent = "Render full-length MP4";
     render.addEventListener("click", renderCompilationVideo);
     compilationPlanDetails.replaceChildren(summary, render);
-    compilationStatus.textContent = "Review the complete plan, then explicitly confirm the local FFmpeg render.";
+    compilationStatus.textContent = plan.provenance.verified ? "Verified chapter provenance. Review the complete plan, then explicitly confirm the local FFmpeg render." : "Provenance is incomplete or ambiguous. You may cancel, or explicitly continue knowing automatic YouTube chapters may be unavailable.";
   } catch (error) { compilationStatus.textContent = error.message; }
   finally { compilationPlanButton.disabled = false; }
 }
@@ -1334,6 +1343,15 @@ async function renderCompilationVideo(event) {
     compilationStatus.textContent = "Compilation video validated and published locally.";
   } catch (error) { compilationStatus.textContent = error.message; event.currentTarget.disabled = false; }
 }
+
+async function reviewMasterRecovery() {
+  approvedMasterRecovery = undefined; approvedVideoRecovery = undefined; compilationRecoveryDetails.replaceChildren(); compilationStatus.textContent = "Measuring the WAV and source recordings without modifying them…";
+  try { const data = await apiJson("/api/compilation-videos/recovery/plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ masterFilename: compilationMaster.value, mixId: compilationRecoveryMix.value }) }); approvedMasterRecovery = data.plan; const details = document.createElement("pre"); details.className = "chapter-preview"; details.textContent = `${data.plan.message}\n\n${data.plan.timeline.map((item) => `${formatCompilationDuration(item.startSeconds)} ${item.title}`).join("\n")}`; const approve = document.createElement("button"); approve.type = "button"; approve.textContent = "Approve recovered WAV timeline"; approve.addEventListener("click", approveMasterRecovery); compilationRecoveryDetails.append(details, approve); compilationStatus.textContent = "Review the proposed evidence-backed timeline. Nothing is saved until approval."; }
+  catch (error) { compilationStatus.textContent = error.message; }
+}
+async function approveMasterRecovery() { if (!approvedMasterRecovery || !window.confirm("Persist this recovered WAV-to-mix timeline? The WAV will not be modified.")) return; try { await apiJson("/api/compilation-videos/recovery/approve", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(approvedMasterRecovery) }); approvedMasterRecovery = undefined; compilationStatus.textContent = "Recovered WAV provenance saved with an audit history. Existing media was unchanged."; await loadCompilationSources(); } catch (error) { compilationStatus.textContent = error.message; } }
+async function reviewVideoRecovery() { approvedVideoRecovery = undefined; compilationRecoveryDetails.replaceChildren(); try { const data = await apiJson("/api/compilation-videos/recovery/video/plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ filename: youtubeMetadataSource.value, masterFilename: compilationMaster.value, mixId: compilationRecoveryMix.value }) }); approvedVideoRecovery = data.plan; const summary = document.createElement("p"); summary.textContent = `${data.plan.message} MP4 fingerprint: ${data.plan.fingerprint}.`; const approve = document.createElement("button"); approve.type = "button"; approve.textContent = "Approve existing MP4 association"; approve.addEventListener("click", approveVideoRecovery); compilationRecoveryDetails.append(summary, approve); compilationStatus.textContent = "Review the retained fingerprint and verified WAV association. The MP4 will not be modified."; } catch (error) { compilationStatus.textContent = error.message; } }
+async function approveVideoRecovery() { if (!approvedVideoRecovery || !window.confirm("Associate this unchanged MP4 with the verified recovered WAV timeline?")) return; try { await apiJson("/api/compilation-videos/recovery/video/approve", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(approvedVideoRecovery) }); approvedVideoRecovery = undefined; compilationStatus.textContent = "Existing MP4 provenance recovered. Regenerate metadata to use verified chapters."; } catch (error) { compilationStatus.textContent = error.message; } }
 
 async function loadYouTubeConnection() {
   youtubeStatus.textContent = "Checking YouTube connection…";
@@ -1499,7 +1517,7 @@ async function generateYouTubeMetadata() {
   try {
     const endpoint = individual ? "/api/youtube/metadata/generate-track" : "/api/youtube/metadata/generate"; const body = individual ? { projectId: youtubeMetadataProject.value, trackId: youtubeMetadataTrack.value } : { projectId: youtubeMetadataProject.value, mixId: youtubeMetadataMix.value, sourceFilename: youtubeMetadataSource.value };
     const data = await apiJson(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    generatedYouTubeMetadata = data.metadata; youtubeMetadataTitle.value = data.metadata.title; youtubeMetadataDescription.value = data.metadata.description; youtubeMetadataTags.value = data.metadata.tags.join(", "); youtubeChapterPreview.textContent = data.metadata.chapters || "No chapters for individual-track metadata."; youtubeMetadataAnalysis.textContent = `Selected genre profiles: ${data.metadata.selectedGenreProfiles.join(", ") || "none"}. Hashtags: ${data.metadata.hashtags.join(" ") || "none"}. ${data.metadata.warnings.join(" ")}`; youtubeMetadataApprove.disabled = false; youtubeMetadataUse.disabled = individual; youtubeMetadataStatus.textContent = "Metadata generated locally. Review and edit every field before approval.";
+    generatedYouTubeMetadata = data.metadata; youtubeMetadataTitle.value = data.metadata.title; youtubeMetadataDescription.value = data.metadata.description; youtubeMetadataTags.value = data.metadata.tags.join(", "); youtubeChapterPreview.textContent = data.metadata.chapters || (individual ? "No chapters for individual-track metadata." : "No verified chapters are available; no timestamps were guessed."); youtubeMetadataAnalysis.classList.toggle("warning", data.metadata.warnings.length > 0); youtubeMetadataAnalysis.textContent = `Provenance: ${data.metadata.provenanceStatus ?? "not applicable"}. Selected genre profiles: ${data.metadata.selectedGenreProfiles.join(", ") || "none"}. Hashtags: ${data.metadata.hashtags.join(" ") || "none"}. ${data.metadata.warnings.join(" ")}`; youtubeMetadataApprove.disabled = false; youtubeMetadataUse.disabled = individual; youtubeMetadataStatus.textContent = data.metadata.chapters || individual ? "Metadata generated locally. Review and edit every field before approval." : "Metadata generated without chapters. Review the provenance warning and all fields before approval.";
   } catch (error) { youtubeMetadataStatus.textContent = error.message; }
   finally { youtubeMetadataGenerate.disabled = false; }
 }

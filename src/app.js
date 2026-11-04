@@ -166,6 +166,18 @@ export function createApp({ client, library, projects, projectPlans, batches, vi
       try { return response.status(201).json({ video: await compilationVideoService.render(request.body ?? {}) }); }
       catch (error) { return sendCompilationVideoError(response, error, logger); }
     });
+    app.post("/api/compilation-videos/recovery/plan", async (request, response) => {
+      if (!isSameOriginRequest(request)) return response.status(403).json({ error: "Compilation recovery is allowed only from this local application." }); try { return response.json({ plan: await compilationVideoService.planMasterRecovery(request.body ?? {}) }); } catch (error) { return sendCompilationVideoError(response, error, logger); }
+    });
+    app.post("/api/compilation-videos/recovery/approve", async (request, response) => {
+      if (!isSameOriginRequest(request)) return response.status(403).json({ error: "Compilation recovery is allowed only from this local application." }); try { return response.json({ recovered: await compilationVideoService.approveMasterRecovery(request.body ?? {}) }); } catch (error) { return sendCompilationVideoError(response, error, logger); }
+    });
+    app.post("/api/compilation-videos/recovery/video/plan", async (request, response) => {
+      if (!isSameOriginRequest(request)) return response.status(403).json({ error: "Compilation recovery is allowed only from this local application." }); try { return response.json({ plan: await compilationVideoService.planExistingVideoRecovery(request.body ?? {}) }); } catch (error) { return sendCompilationVideoError(response, error, logger); }
+    });
+    app.post("/api/compilation-videos/recovery/video/approve", async (request, response) => {
+      if (!isSameOriginRequest(request)) return response.status(403).json({ error: "Compilation recovery is allowed only from this local application." }); try { return response.json({ recovered: await compilationVideoService.approveExistingVideoRecovery(request.body ?? {}) }); } catch (error) { return sendCompilationVideoError(response, error, logger); }
+    });
   }
 
   if (youtubeService) {

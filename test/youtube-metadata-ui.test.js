@@ -13,6 +13,7 @@ test("metadata UI keeps import and generation separate from the explicitly confi
   assert.match(app, /youtubeMetadataUse\.disabled = individual/);
   assert.match(html, /Recover legacy chapter provenance/); assert.match(html, /Review WAV recovery/); assert.match(html, /Review selected MP4 association/); assert.match(app, /No verified chapters are available; no timestamps were guessed/); assert.match(app, /Provenance:/);
   assert.match(app, /beyond-the-blackwall\.json/); assert.match(app, /analysis-import/); assert.match(app, /existing profile fields are unchanged/); assert.doesNotMatch(app, /Gemini|billable requests|metadata\/ai/);
+  assert.match(html, /Review evidence-backed legacy link repair/); assert.match(app, /link-repair\/plan/); assert.match(app, /link-repair\/approve/); assert.match(app, /No recordings or media files will be modified/);
   const generate = app.slice(app.indexOf("async function generateYouTubeMetadata"), app.indexOf("async function approveYouTubeMetadata")); assert.doesNotMatch(generate, /\/api\/youtube\/uploads/);
   assert.match(generate, /catch \(error\).*youtubeMetadataStatus\.textContent = error\.message/s);
 });

@@ -63,7 +63,7 @@ try {
   const youtubeUploadService = new YouTubeUploadService(outputDirectory, youtubeService, youtubeUploadStore, { ffprobe: process.env.FFPROBE_PATH || "ffprobe" });
   await youtubeUploadService.initialize();
   const youtubeMetadataStore = new YouTubeMetadataStore(outputDirectory);
-  const youtubeMetadataService = new YouTubeMetadataService({ connection: youtubeService, store: youtubeMetadataStore, projects, library, mixStore, mixService, uploadService: youtubeUploadService, compilationVideoService });
+  const youtubeMetadataService = new YouTubeMetadataService({ connection: youtubeService, store: youtubeMetadataStore, projects, library, mixStore, mixService, uploadService: youtubeUploadService, compilationVideoService, bundledAnalysisPath: path.join(projectRoot, "channel-analysis", "beyond-the-blackwall-analysis.json") });
   await youtubeMetadataService.initialize();
   const app = createApp({
     client,

@@ -1,9 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { analyseChannelStyle, BEYOND_BLACKWALL_CHANNEL_ID, buildChapterTimeline, formatChapters, validateCompletedTimeline, YouTubeMetadataService, YouTubeMetadataStore } from "../src/youtube-metadata.js";
 import { buildMixTimeline } from "../src/mixes.js";
+import { buildChannelAnalysisExport } from "../src/youtube-style-profile.js";
 
 function video(id, title, description = "Recurring intro\n\nBody\n\nRecurring footer", tags = ["dark ambient", "cyberpunk"]) { return { id, snippet: { title, description, tags, publishedAt: "2026-01-01T00:00:00Z", thumbnails: { high: { url: `https://thumb.test/${id}.jpg` } } }, contentDetails: { duration: "PT1H2M3S" } }; }
 
@@ -91,4 +92,21 @@ test("reviewed proposal remains separate until explicit acceptance and preserves
   const exported = service.exportChannelAnalysis(); const input = { version: 1, channelId: BEYOND_BLACKWALL_CHANNEL_ID, datasetFingerprint: exported.datasetFingerprint, report: { summary: "Two formats", observedConventions: [{ category: "title", pattern: "Two formats", sourceVideoIds: ["v1", "v2"], examples: ["Mix"] }], inconsistencies: [], recommendations: [] }, proposedProfile: { compilationTitleTemplate: "{project} | Mix", individualTrackTitleTemplate: "{track} | Track", universalBranding: { introduction: "Intro", footer: "Footer", callsToAction: ["Subscribe"], recurringLinks: ["https://example.test"] }, universalTags: ["music"], universalHashtags: ["#Blackwall"], genreProfiles: [{ genre: "industrial", keywords: ["dark"], tags: ["industrial"], hashtags: ["#Industrial"], sourceVideoIds: ["v1"] }] } };
   await service.importChannelAnalysis(input); assert.equal(service.state().profile.titleTemplate, "Manual"); await assert.rejects(() => service.acceptChannelAnalysis("wrong"), /missing or changed/);
   const accepted = await service.acceptChannelAnalysis("proposal-1"); assert.equal(accepted.compilationTitleTemplate, "{project} | Mix"); assert.equal(accepted.individualTrackTitleTemplate, "{track} | Track"); assert.equal(accepted.thumbnailBranding, "Keep this manual reference"); assert.equal(service.state().analysisProposal, undefined);
+});
+
+test("matching bundled analysis is staged once, requires approval, and remembers that approval", async (t) => {
+  const root = await mkdtemp(path.join(process.cwd(), ".test-tmp-bundled-analysis-")); t.after(() => rm(root, { recursive: true, force: true }));
+  const store = new YouTubeMetadataStore(root); await store.initialize(); const imports = [{ id: "v1", title: "Mix", description: "Description", tags: [], duration: 3600, publishedAt: "2026-01-01T00:00:00Z" }, { id: "v2", title: "Track", description: "Description", tags: [], duration: 240, publishedAt: "2026-01-02T00:00:00Z" }];
+  await store.update((data) => { data.imports = imports; data.profile = { titleTemplate: "Manual", thumbnailBranding: "Preserve me", userEdited: true }; }); const exported = buildChannelAnalysisExport({ channelId: BEYOND_BLACKWALL_CHANNEL_ID, imports });
+  const bundled = { version: 1, channelId: BEYOND_BLACKWALL_CHANNEL_ID, datasetFingerprint: exported.datasetFingerprint, report: { summary: "Reviewed", observedConventions: [{ category: "titles", pattern: "Two formats", sourceVideoIds: ["v1", "v2"], examples: ["Mix"] }], inconsistencies: [], recommendations: [] }, proposedProfile: { compilationTitleTemplate: "{project} | Mix", individualTrackTitleTemplate: "{track} | Track", universalBranding: { introduction: "Intro", footer: "Footer", callsToAction: [], recurringLinks: [] }, universalTags: [], universalHashtags: [], genreProfiles: [] } }; const bundledPath = path.join(root, "bundled.json"); await writeFile(bundledPath, JSON.stringify(bundled));
+  const service = new YouTubeMetadataService({ store, bundledAnalysisPath: bundledPath, now: () => new Date("2026-11-04T00:00:00Z") }); await service.initialize();
+  assert.equal(service.state().bundledAnalysis.compatible, true); assert.equal(service.state().bundledAnalysis.applied, false); assert.equal(service.state().analysisProposal.origin, "bundled"); assert.equal(service.state().profile.titleTemplate, "Manual");
+  await service.acceptChannelAnalysis(`bundled:${exported.datasetFingerprint}`); assert.equal(service.state().profile.thumbnailBranding, "Preserve me"); assert.equal(service.state().profile.compilationTitleTemplate, "{project} | Mix");
+  const restarted = new YouTubeMetadataService({ store: new YouTubeMetadataStore(root), bundledAnalysisPath: bundledPath }); await restarted.initialize(); assert.equal(restarted.state().bundledAnalysis.applied, true); assert.equal(restarted.state().analysisProposal, undefined);
+});
+
+test("mismatched bundled analysis is visible but never staged or applied", async (t) => {
+  const root = await mkdtemp(path.join(process.cwd(), ".test-tmp-stale-bundled-analysis-")); t.after(() => rm(root, { recursive: true, force: true })); const store = new YouTubeMetadataStore(root); await store.initialize(); await store.update((data) => { data.imports = [{ id: "different", title: "Different", description: "", tags: [], duration: 1, publishedAt: "2026-01-01T00:00:00Z" }]; data.profile = { titleTemplate: "Keep me", userEdited: true }; });
+  const source = JSON.parse(await readFile("channel-analysis/beyond-the-blackwall-analysis.json", "utf8")); const bundledPath = path.join(root, "bundled.json"); await writeFile(bundledPath, JSON.stringify(source)); const service = new YouTubeMetadataService({ store, bundledAnalysisPath: bundledPath }); await service.initialize();
+  assert.equal(service.state().bundledAnalysis.available, true); assert.equal(service.state().bundledAnalysis.compatible, false); assert.equal(service.state().analysisProposal, undefined); assert.equal(service.state().profile.titleTemplate, "Keep me");
 });

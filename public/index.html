@@ -187,11 +187,16 @@
       <div class="track-actions">
         <button id="youtube-style-import" type="button">Import Channel Style</button>
         <button id="youtube-style-refresh" class="secondary" type="button">Refresh Channel Style</button>
+        <button id="youtube-analysis-export" class="secondary" type="button">Export metadata for review</button>
+        <label class="button secondary" for="youtube-analysis-file">Import reviewed analysis</label>
+        <input id="youtube-analysis-file" type="file" accept="application/json,.json" hidden>
       </div>
       <p id="youtube-style-status" role="status" aria-live="polite">Channel style has not been loaded.</p>
       <details>
         <summary>Channel style profile editor</summary>
-        <label for="youtube-style-title-template">Title template ({project}, {duration}, {genre})</label><input id="youtube-style-title-template" maxlength="200">
+        <label for="youtube-style-title-template">Legacy title template ({project}, {duration}, {genre})</label><input id="youtube-style-title-template" maxlength="200">
+        <label for="youtube-style-compilation-template">Compilation title template</label><input id="youtube-style-compilation-template" maxlength="200">
+        <label for="youtube-style-track-template">Individual-track title template</label><input id="youtube-style-track-template" maxlength="200">
         <label for="youtube-style-introduction">Recurring introduction</label><textarea id="youtube-style-introduction" maxlength="5000"></textarea>
         <label for="youtube-style-reusable">Reusable description text</label><textarea id="youtube-style-reusable" maxlength="5000"></textarea>
         <label for="youtube-style-footer">Recurring footer</label><textarea id="youtube-style-footer" maxlength="5000"></textarea>
@@ -204,6 +209,13 @@
         <button id="youtube-style-save" type="button">Save style profile</button>
         <div id="youtube-style-sources" class="track-meta"></div>
       </details>
+      <section id="youtube-analysis-proposal" class="youtube-analysis-proposal" hidden aria-labelledby="youtube-analysis-proposal-heading">
+        <h3 id="youtube-analysis-proposal-heading">Imported channel analysis proposal</h3>
+        <div id="youtube-analysis-report"></div>
+        <details><summary>Proposed profile JSON</summary><pre id="youtube-analysis-profile-preview" class="chapter-preview"></pre></details>
+        <button id="youtube-analysis-accept" type="button">Accept proposed profile changes</button>
+        <p class="track-meta">Nothing changes until you accept this proposal. Accepting replaces the relevant profile fields; you can still edit and save them afterward.</p>
+      </section>
       <div class="youtube-metadata-grid">
         <div><label for="youtube-metadata-project">Completed music project</label><select id="youtube-metadata-project"><option value="">Choose a project</option></select></div>
         <div><label for="youtube-metadata-mix">Audio mix</label><select id="youtube-metadata-mix"><option value="">Choose a mix</option></select></div>

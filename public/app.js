@@ -80,9 +80,15 @@ const youtubeUploadRecords = document.querySelector("#youtube-upload-records");
 const youtubeStyleImport = document.querySelector("#youtube-style-import");
 const youtubeStyleRefresh = document.querySelector("#youtube-style-refresh");
 const youtubeStyleSave = document.querySelector("#youtube-style-save");
+const youtubeAnalysisExport = document.querySelector("#youtube-analysis-export");
+const youtubeAnalysisFile = document.querySelector("#youtube-analysis-file");
 const youtubeStyleStatus = document.querySelector("#youtube-style-status");
 const youtubeStyleSources = document.querySelector("#youtube-style-sources");
-const youtubeStyleFields = { titleTemplate: document.querySelector("#youtube-style-title-template"), introduction: document.querySelector("#youtube-style-introduction"), reusableText: document.querySelector("#youtube-style-reusable"), footer: document.querySelector("#youtube-style-footer"), links: document.querySelector("#youtube-style-links"), genreVocabulary: document.querySelector("#youtube-style-genres"), durationTerminology: document.querySelector("#youtube-style-duration-terms"), tags: document.querySelector("#youtube-style-tags"), hashtags: document.querySelector("#youtube-style-hashtags"), thumbnailBranding: document.querySelector("#youtube-style-thumbnail") };
+const youtubeStyleFields = { titleTemplate: document.querySelector("#youtube-style-title-template"), compilationTitleTemplate: document.querySelector("#youtube-style-compilation-template"), individualTrackTitleTemplate: document.querySelector("#youtube-style-track-template"), introduction: document.querySelector("#youtube-style-introduction"), reusableText: document.querySelector("#youtube-style-reusable"), footer: document.querySelector("#youtube-style-footer"), links: document.querySelector("#youtube-style-links"), genreVocabulary: document.querySelector("#youtube-style-genres"), durationTerminology: document.querySelector("#youtube-style-duration-terms"), tags: document.querySelector("#youtube-style-tags"), hashtags: document.querySelector("#youtube-style-hashtags"), thumbnailBranding: document.querySelector("#youtube-style-thumbnail") };
+const youtubeAnalysisProposal = document.querySelector("#youtube-analysis-proposal");
+const youtubeAnalysisReport = document.querySelector("#youtube-analysis-report");
+const youtubeAnalysisProfilePreview = document.querySelector("#youtube-analysis-profile-preview");
+const youtubeAnalysisAccept = document.querySelector("#youtube-analysis-accept");
 const youtubeMetadataProject = document.querySelector("#youtube-metadata-project");
 const youtubeMetadataMix = document.querySelector("#youtube-metadata-mix");
 const youtubeMetadataSource = document.querySelector("#youtube-metadata-source");
@@ -113,6 +119,8 @@ let youtubeAuthPoll;
 let approvedYouTubeUploadPlan;
 let youtubeUploadPoll;
 let generatedYouTubeMetadata;
+let proposedYouTubeStyle;
+let currentYoutubeGenreProfiles = [];
 
 player.volume = Number(volume.value);
 volume.addEventListener("input", () => {
@@ -177,6 +185,9 @@ youtubeUploadPlanButton.addEventListener("click", reviewYouTubeUploadPlan);
 youtubeStyleImport.addEventListener("click", importYouTubeStyle);
 youtubeStyleRefresh.addEventListener("click", importYouTubeStyle);
 youtubeStyleSave.addEventListener("click", saveYouTubeStyle);
+youtubeAnalysisExport.addEventListener("click", exportYouTubeAnalysisMetadata);
+youtubeAnalysisFile.addEventListener("change", importYouTubeStyleAnalysis);
+youtubeAnalysisAccept.addEventListener("click", acceptYouTubeStyleProposal);
 youtubeMetadataGenerate.addEventListener("click", generateYouTubeMetadata);
 youtubeMetadataApprove.addEventListener("click", approveYouTubeMetadata);
 youtubeMetadataUse.addEventListener("click", useYouTubeMetadata);
@@ -1404,8 +1415,22 @@ function renderYouTubeStyle(data) {
   const profile = data.profile;
   if (!profile) { youtubeStyleStatus.textContent = "No channel style profile saved. Import the authorized Beyond the Blackwall channel or enter a profile manually."; return; }
   for (const [key, field] of Object.entries(youtubeStyleFields)) field.value = Array.isArray(profile[key]) ? profile[key].join(key === "links" ? "\n" : ", ") : profile[key] ?? "";
+  currentYoutubeGenreProfiles = profile.genreProfiles ?? [];
   youtubeStyleStatus.textContent = `${data.importedVideos.length} channel video(s) informed the profile. ${profile.findings?.join(" ") ?? ""}`;
   youtubeStyleSources.textContent = data.importedVideos.length ? `Source videos: ${data.importedVideos.map((video) => video.title).join(" · ")}` : "No existing videos informed this profile.";
+  renderYouTubeAnalysisProposal(data.analysisProposal);
+}
+
+function renderYouTubeAnalysisProposal(proposal) {
+  proposedYouTubeStyle = proposal; youtubeAnalysisProposal.hidden = !proposal; youtubeAnalysisReport.replaceChildren(); youtubeAnalysisProfilePreview.textContent = proposal ? JSON.stringify(proposal.proposedProfile, null, 2) : "";
+  if (!proposal) return;
+  const summary = document.createElement("p"); summary.textContent = proposal.report.summary;
+  const heading = document.createElement("strong"); heading.textContent = "Observed conventions";
+  const observations = document.createElement("ul"); for (const item of proposal.report.observedConventions) { const li = document.createElement("li"); li.textContent = `${item.category}: ${item.pattern} — sources: ${item.sourceVideoIds.join(", ")}`; observations.append(li); }
+  const recommendationsHeading = document.createElement("strong"); recommendationsHeading.textContent = "Recommendations (not observed facts)";
+  const recommendations = document.createElement("ul"); for (const item of proposal.report.recommendations) { const li = document.createElement("li"); li.textContent = `${item.recommendation} — ${item.rationale}${item.sourceVideoIds.length ? ` — sources: ${item.sourceVideoIds.join(", ")}` : ""}`; recommendations.append(li); }
+  const inconsistencies = document.createElement("p"); inconsistencies.textContent = `Inconsistencies: ${proposal.report.inconsistencies.map((item) => item.issue).join(" · ") || "None reported"}`;
+  youtubeAnalysisReport.append(summary, heading, observations, recommendationsHeading, recommendations, inconsistencies);
 }
 
 function refreshYouTubeMetadataSelectors() {
@@ -1425,10 +1450,40 @@ async function importYouTubeStyle() {
 
 async function saveYouTubeStyle() {
   const body = {}; for (const [key, field] of Object.entries(youtubeStyleFields)) body[key] = field.value;
+  body.genreProfiles = currentYoutubeGenreProfiles;
   youtubeStyleSave.disabled = true;
   try { await apiJson("/api/youtube/metadata/profile", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); await loadYouTubeMetadata(); youtubeStyleStatus.textContent = "Style profile saved locally."; }
   catch (error) { youtubeStyleStatus.textContent = error.message; }
   finally { youtubeStyleSave.disabled = false; }
+}
+
+async function exportYouTubeAnalysisMetadata() {
+  youtubeAnalysisExport.disabled = true;
+  try {
+    const data = await apiJson("/api/youtube/metadata/analysis-export");
+    const url = URL.createObjectURL(new Blob([`${JSON.stringify(data, null, 2)}\n`], { type: "application/json" }));
+    const link = document.createElement("a"); link.href = url; link.download = "beyond-the-blackwall.json"; link.click(); URL.revokeObjectURL(url);
+    youtubeStyleStatus.textContent = "Reviewable channel metadata exported locally. No credentials or unrelated application data were included; sharing it through GitHub is a separate manual action.";
+  } catch (error) { youtubeStyleStatus.textContent = error.message; }
+  finally { youtubeAnalysisExport.disabled = false; }
+}
+
+async function importYouTubeStyleAnalysis() {
+  const file = youtubeAnalysisFile.files?.[0]; if (!file) return;
+  try {
+    const parsed = JSON.parse(await file.text());
+    const data = await apiJson("/api/youtube/metadata/analysis-import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(parsed) });
+    renderYouTubeAnalysisProposal(data.proposal); youtubeStyleStatus.textContent = "Reviewed analysis imported. Preview the report and profile; existing profile fields are unchanged.";
+  } catch (error) { youtubeStyleStatus.textContent = error instanceof SyntaxError ? "The selected analysis file is not valid JSON." : error.message; }
+  finally { youtubeAnalysisFile.value = ""; }
+}
+
+async function acceptYouTubeStyleProposal() {
+  if (!proposedYouTubeStyle || !window.confirm("Accept this reviewed channel-style proposal and replace the corresponding profile fields? Unrelated manual fields will be preserved.")) return;
+  youtubeAnalysisAccept.disabled = true;
+  try { await apiJson("/api/youtube/metadata/analysis-accept", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ proposalId: proposedYouTubeStyle.id }) }); await loadYouTubeMetadata(); youtubeStyleStatus.textContent = "Imported profile accepted. Review or edit the saved fields at any time."; }
+  catch (error) { youtubeStyleStatus.textContent = error.message; }
+  finally { youtubeAnalysisAccept.disabled = false; }
 }
 
 function invalidateYouTubeMetadata() { generatedYouTubeMetadata = undefined; youtubeMetadataApprove.disabled = true; youtubeMetadataUse.disabled = true; youtubeMetadataStatus.textContent = "Selection changed. Generate metadata again before approval."; }

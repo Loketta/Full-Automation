@@ -11,7 +11,7 @@ test("upload API keeps destination/private policy server-side and rejects cross-
   const plan = { source: { filename: "complete.mp4", size: 100, duration: 3640, fingerprint: "hash" }, title: "Complete", description: "Description", tags: ["music"], visibility: "private", channel: { id: "UC-bound", name: "Bound" }, snapshot: "snapshot" };
   const youtubeUploadService = {
     async listSources() { return [{ filename: "complete.mp4", size: 100 }]; }, list() { return []; }, status() { return { active: false }; },
-    async plan(body) { calls.push(["plan", body]); return plan; }, async start(body) { calls.push(["start", body]); return { id: "upload", visibility: "private", channelId: "UC-bound" }; }, async resume(id) { calls.push(["resume", id]); return { id, status: "Uploading" }; },
+    async plan(body) { calls.push(["plan", body]); return plan; }, async start(body) { calls.push(["start", body]); return { id: "upload", visibility: "private", channelId: "UC-bound" }; }, async resume(id) { calls.push(["resume", id]); return { id, status: "Uploading" }; }, async confirmDisclosure(id) { calls.push(["disclosure", id]); return { id, disclosureStatus: "ManuallyConfirmed" }; },
   };
   const app = createApp({ client: {}, library: { list: () => [] }, projects: { list: () => [] }, youtubeUploadService, outputDirectory: root, publicDirectory: path.join(root, "public") });
   const server = app.listen(0, "127.0.0.1"); await once(server, "listening"); t.after(() => server.close()); const base = `http://127.0.0.1:${server.address().port}`;
@@ -22,4 +22,5 @@ test("upload API keeps destination/private policy server-side and rejects cross-
   const started = await (await fetch(`${base}/api/youtube/uploads`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ filename: "complete.mp4", title: "Complete", snapshot: "snapshot", visibility: "public", channelId: "attacker" }) })).json();
   assert.equal(started.upload.visibility, "private"); assert.equal(started.upload.channelId, "UC-bound");
   await fetch(`${base}/api/youtube/uploads/upload/resume`, { method: "POST" }); assert.deepEqual(calls.at(-1), ["resume", "upload"]);
+  const disclosure = await (await fetch(`${base}/api/youtube/uploads/upload/disclosure-confirmation`, { method: "POST" })).json(); assert.equal(disclosure.upload.disclosureStatus, "ManuallyConfirmed"); assert.deepEqual(calls.at(-1), ["disclosure", "upload"]);
 });

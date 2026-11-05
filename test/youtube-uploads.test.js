@@ -13,7 +13,7 @@ async function fixture(t, overrides = {}) {
   const calls = { sessions: [], chunks: [], queries: [] };
   const transport = overrides.transport ?? {
     async createSession(values) { calls.sessions.push(values); return { sessionUrl: "https://upload.test/sensitive-session" }; },
-    async uploadChunk(values) { calls.chunks.push(values); return values.end + 1 === values.total ? { status: 201, completed: true, data: { id: "video-123" } } : { status: 308, range: `bytes=0-${values.end}` }; },
+    async uploadChunk(values) { calls.chunks.push(values); return values.end + 1 === values.total ? { status: 201, completed: true, data: { id: "video-123", status: { containsSyntheticMedia: true } } } : { status: 308, range: `bytes=0-${values.end}` }; },
     async querySession(values) { calls.queries.push(values); return { status: 308, range: undefined }; },
   };
   const service = new YouTubeUploadService(output, connection, store, { transport, chunkSize: overrides.chunkSize ?? 4, probe: async () => ({ duration: 3640.15, streams: [{ codecType: "video" }, { codecType: "audio" }] }), randomUUID: () => "upload-1", now: () => new Date("2026-11-03T12:00:00Z"), sleep: overrides.sleep ?? (async () => {}) });
@@ -27,7 +27,7 @@ async function approvedPlan(values, extra = {}) {
 
 test("plan binds exact private metadata, source fingerprint, and verified channel", async (t) => {
   const values = await fixture(t); const plan = await approvedPlan(values);
-  assert.equal(plan.visibility, "private"); assert.equal(plan.channel.id, "UC-destination"); assert.equal(plan.source.duration, 3640.15); assert.equal(plan.source.size, 10); assert.match(plan.source.fingerprint, /^[a-f0-9]{64}$/); assert.ok(plan.snapshot);
+  assert.equal(plan.visibility, "private"); assert.equal(plan.containsSyntheticMedia, true); assert.match(plan.disclosureReason, /Lyria/); assert.equal(plan.channel.id, "UC-destination"); assert.equal(plan.source.duration, 3640.15); assert.equal(plan.source.size, 10); assert.match(plan.source.fingerprint, /^[a-f0-9]{64}$/); assert.ok(plan.snapshot);
   assert.deepEqual(plan.tags, ["cyberpunk", "industrial"]);
 });
 
@@ -35,10 +35,18 @@ test("streams bounded chunks, reports progress, and records only private complet
   const values = await fixture(t); const plan = await approvedPlan(values);
   const started = await values.service.start({ filename: values.filename, title: plan.title, description: plan.description, tags: plan.tags, snapshot: plan.snapshot });
   assert.equal(started.visibility, "private"); await values.service.waitForIdle();
-  const record = values.service.list()[0]; assert.equal(record.status, "Completed"); assert.equal(record.youtubeVideoId, "video-123"); assert.equal(record.youtubeVideoUrl, "https://www.youtube.com/watch?v=video-123"); assert.equal(record.progressPercent, 100);
-  assert.equal(values.calls.sessions.length, 1); assert.equal(values.calls.sessions[0].metadata.status.privacyStatus, "private");
+  const record = values.service.list()[0]; assert.equal(record.status, "Completed"); assert.equal(record.youtubeVideoId, "video-123"); assert.equal(record.youtubeVideoUrl, "https://www.youtube.com/watch?v=video-123"); assert.equal(record.youtubeStudioUrl, "https://studio.youtube.com/video/video-123/edit"); assert.equal(record.disclosureStatus, "Verified"); assert.equal(record.readyForPublicRelease, true); assert.equal(record.progressPercent, 100);
+  assert.equal(values.calls.sessions.length, 1); assert.deepEqual(values.calls.sessions[0].metadata.status, { privacyStatus: "private", containsSyntheticMedia: true }); assert.equal("selfDeclaredMadeForKids" in values.calls.sessions[0].metadata.status, false);
   assert.deepEqual(values.calls.chunks.map((call) => call.body.length), [4, 4, 2]); assert.ok(values.calls.chunks.every((call) => call.body.length <= 4));
   const disk = await readFile(path.join(values.output, "youtube-upload-records.enc"), "utf8"); assert.doesNotMatch(disk, /sensitive-session|temporary-access|video-123|Industrial/);
+});
+
+test("an unreturned disclosure remains outstanding until explicit Studio confirmation persists", async (t) => {
+  const values = await fixture(t, { transport: { async createSession() { return { sessionUrl: "https://upload.test/session" }; }, async uploadChunk() { return { status: 201, completed: true, data: { id: "manual-review" } }; } } }); const plan = await approvedPlan(values);
+  await values.service.start({ filename: values.filename, title: plan.title, description: plan.description, tags: plan.tags, snapshot: plan.snapshot }); await values.service.waitForIdle();
+  let record = values.service.list()[0]; assert.equal(record.disclosureStatus, "SubmittedUnverified"); assert.equal(record.readyForPublicRelease, false); assert.match(record.message, /verify it in YouTube Studio/i);
+  record = await values.service.confirmDisclosure(record.id); assert.equal(record.disclosureStatus, "ManuallyConfirmed"); assert.equal(record.readyForPublicRelease, true);
+  const restarted = new YouTubeUploadService(values.output, values.connection, new YouTubeUploadStore(values.output, "oauth-client-secret", { randomBytes: (size) => Buffer.alloc(size, 3) }), { transport: values.transport, probe: async () => ({ duration: 3640.15, streams: [{ codecType: "video" }, { codecType: "audio" }] }) }); await restarted.initialize(); assert.equal(restarted.list()[0].disclosureStatus, "ManuallyConfirmed");
 });
 
 test("source modification and channel changes invalidate approval before session creation", async (t) => {

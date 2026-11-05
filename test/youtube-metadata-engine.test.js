@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildMetadataCopy, classifyGenres, COMPILATION_TEMPLATE_VARIABLES, DESCRIPTION_TEMPLATE_VARIABLES, genreLabel, groundedScene, profileKeywords, renderOptionalTemplate, renderTemplate, selectGenreProfiles, TRACK_TEMPLATE_VARIABLES, validateTemplate } from "../src/youtube-metadata-engine.js";
+import { buildMetadataCopy, classifyGenres, COMPILATION_TEMPLATE_VARIABLES, DESCRIPTION_TEMPLATE_VARIABLES, genreLabel, groundedScene, profileKeywords, renderOptionalTemplate, renderTemplate, selectGenreProfiles, thematicOpening, TRACK_TEMPLATE_VARIABLES, validateTemplate } from "../src/youtube-metadata-engine.js";
 
 const profiles = ["industrial", "synthwave", "lo-fi", "metal", "jazz", "space"].map((genre) => ({ genre, keywords: [genre, genre === "space" ? "space opera" : `${genre} sound`], tags: [`${genre} music`], hashtags: [`#${genre.replace("-", "")}`] }));
 
@@ -53,4 +53,13 @@ test("scene language is conservative for realistic technical generation text", (
   assert.equal(groundedScene({ theme: "Industrial cyberpunk production." }, technicalTrack), "");
   assert.deepEqual(renderOptionalTemplate("Music for {mood_or_scene}.", { mood_or_scene: "" }, DESCRIPTION_TEMPLATE_VARIABLES, "Introduction template"), { text: "", warning: "Introduction template was omitted because {mood_or_scene} could not be grounded in the saved metadata." });
   assert.equal(groundedScene({ theme: "Cyberpunk music." }, { direction: "Music for late-night drives through rain-soaked streets. Slow build, no vocals." }), "late-night drives through rain-soaked streets");
+});
+
+test("thematic openings prefer track and project wording, suggest only grounded themes, and reject filler", () => {
+  const project = { name: "After Midnight", theme: "A cyberpunk city in the hours after midnight.", thematicOpening: "  Music   for the late nights.  " };
+  assert.deepEqual(thematicOpening(project), { text: "Music for the late nights.", source: "project" });
+  assert.deepEqual(thematicOpening(project, { thematicOpening: "Music for the last job." }), { text: "Music for the last job.", source: "track override" });
+  assert.deepEqual(thematicOpening({ name: "After Midnight", theme: "A cyberpunk city in the hours after midnight." }), { text: "Music for the hours after midnight.", source: "deterministic suggestion" });
+  assert.deepEqual(thematicOpening({ name: "Collection", theme: "Instrumental electronic music." }), { text: "", source: "insufficient evidence" });
+  assert.deepEqual(thematicOpening({ name: "Day Shift", theme: "Not after midnight; bright daytime music." }), { text: "", source: "insufficient evidence" });
 });

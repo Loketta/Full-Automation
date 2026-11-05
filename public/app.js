@@ -39,6 +39,7 @@ const overviewGenerateBatchButton = document.querySelector("#overview-generate-b
 const overviewClearBatchButton = document.querySelector("#overview-clear-batch");
 const projectName = document.querySelector("#project-name");
 const projectTheme = document.querySelector("#project-theme");
+const projectThematicOpening = document.querySelector("#project-thematic-opening");
 const projectCreated = document.querySelector("#project-created");
 const plannedTrackList = document.querySelector("#planned-track-list");
 const addPlannedTrackForm = document.querySelector("#add-planned-track-form");
@@ -88,7 +89,7 @@ const youtubeAnalysisExport = document.querySelector("#youtube-analysis-export")
 const youtubeAnalysisFile = document.querySelector("#youtube-analysis-file");
 const youtubeStyleStatus = document.querySelector("#youtube-style-status");
 const youtubeStyleSources = document.querySelector("#youtube-style-sources");
-const youtubeStyleFields = { titleTemplate: document.querySelector("#youtube-style-title-template"), compilationTitleTemplate: document.querySelector("#youtube-style-compilation-template"), individualTrackTitleTemplate: document.querySelector("#youtube-style-track-template"), introduction: document.querySelector("#youtube-style-introduction"), reusableText: document.querySelector("#youtube-style-reusable"), footer: document.querySelector("#youtube-style-footer"), links: document.querySelector("#youtube-style-links"), genreVocabulary: document.querySelector("#youtube-style-genres"), durationTerminology: document.querySelector("#youtube-style-duration-terms"), tags: document.querySelector("#youtube-style-tags"), hashtags: document.querySelector("#youtube-style-hashtags"), thumbnailBranding: document.querySelector("#youtube-style-thumbnail") };
+const youtubeStyleFields = { titleTemplate: document.querySelector("#youtube-style-title-template"), compilationTitleTemplate: document.querySelector("#youtube-style-compilation-template"), individualTrackTitleTemplate: document.querySelector("#youtube-style-track-template"), introduction: document.querySelector("#youtube-style-introduction"), aiProductionCredit: document.querySelector("#youtube-style-ai-credit"), reusableText: document.querySelector("#youtube-style-reusable"), footer: document.querySelector("#youtube-style-footer"), links: document.querySelector("#youtube-style-links"), genreVocabulary: document.querySelector("#youtube-style-genres"), durationTerminology: document.querySelector("#youtube-style-duration-terms"), tags: document.querySelector("#youtube-style-tags"), hashtags: document.querySelector("#youtube-style-hashtags"), thumbnailBranding: document.querySelector("#youtube-style-thumbnail") };
 const youtubeAnalysisProposal = document.querySelector("#youtube-analysis-proposal");
 const youtubeAnalysisReport = document.querySelector("#youtube-analysis-report");
 const youtubeAnalysisProfilePreview = document.querySelector("#youtube-analysis-profile-preview");
@@ -506,7 +507,7 @@ document.querySelector("#save-project").addEventListener("click", async () => {
     await apiJson(`/api/projects/${encodeURIComponent(projectSelect.value)}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: projectName.value, theme: projectTheme.value }),
+      body: JSON.stringify({ name: projectName.value, theme: projectTheme.value, thematicOpening: projectThematicOpening.value }),
     });
     await loadProjects(projectSelect.value);
     projectStatus.textContent = "Project details saved.";
@@ -666,6 +667,7 @@ function renderSelectedProject(id) {
   selectedBatchTrackIds = reconcileBatchSelection(project, selectedBatchTrackIds);
   projectName.value = project.name;
   projectTheme.value = project.theme;
+  projectThematicOpening.value = project.thematicOpening ?? "";
   projectCreated.textContent = `Created ${new Date(project.createdAt).toLocaleString()}`;
   projectProgress.textContent = formatProjectProgress(project.progress);
   plannedTrackList.replaceChildren();
@@ -725,6 +727,8 @@ function createPlannedTrackCard(project, track, index) {
   const title = field("Title", track.title, "input", 120);
   const direction = field("Musical direction", track.direction, "textarea", 1000);
   const promptField = field("Complete Lyria generation prompt", track.prompt, "textarea", 2000);
+  const thematic = field("YouTube thematic opening override", track.thematicOpening ?? "", "input", 180);
+  thematic.control.placeholder = project.thematicOpening || "Music for the last job.";
   title.control.dataset.plannedField = "title";
   direction.control.dataset.plannedField = "direction";
   promptField.control.dataset.plannedField = "prompt";
@@ -750,6 +754,11 @@ function createPlannedTrackCard(project, track, index) {
   actions.className = "track-actions";
   const cardMessage = configurePlannedTrackMessage(document.createElement("p"));
   cardMessage.id = `planned-track-message-${track.id}`;
+  const saveThematic = actionButton("Save thematic opening", "secondary compact", async () => {
+    try { await apiJson(`/api/projects/${project.id}/tracks/${track.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ thematicOpening: thematic.control.value }) }); await loadProjects(project.id); projectStatus.textContent = "Track thematic opening saved."; }
+    catch (error) { showPlannedTrackMessage(cardMessage, error.message); }
+  });
+  actions.append(saveThematic);
   if (!locked) {
     const save = actionButton("Save plan", "secondary compact", async () => {
       try {
@@ -806,9 +815,9 @@ function createPlannedTrackCard(project, track, index) {
   actions.append(remove);
   if (locked) {
     const recordingPanel = createProjectRecording(project, track, cardMessage);
-    card.append(heading, title.wrapper, direction.wrapper, promptField.wrapper, recordingPanel, actions, cardMessage);
+    card.append(heading, title.wrapper, direction.wrapper, promptField.wrapper, thematic.wrapper, recordingPanel, actions, cardMessage);
   } else {
-    card.append(heading, title.wrapper, direction.wrapper, promptField.wrapper, actions, cardMessage);
+    card.append(heading, title.wrapper, direction.wrapper, promptField.wrapper, thematic.wrapper, actions, cardMessage);
   }
   return card;
 }
@@ -1565,11 +1574,18 @@ function renderYouTubeUploadRecords(records) {
     const progress = document.createElement("progress"); progress.max = 100; progress.value = record.progressPercent; progress.setAttribute("aria-label", `${record.title} upload progress`);
     const bytes = document.createElement("p"); bytes.textContent = `${formatUploadBytes(record.uploadedBytes)} of ${formatUploadBytes(record.sourceSize)} (${record.progressPercent.toFixed(1)}%)`;
     const message = document.createElement("p"); message.className = "track-meta"; message.textContent = record.message ?? "";
-    card.append(heading, statusLine, channel, progress, bytes, message);
+    const disclosure = document.createElement("p"); disclosure.className = record.disclosureStatus === "Verified" ? "track-meta" : "warning"; disclosure.textContent = `YouTube altered/synthetic disclosure: ${record.disclosureStatus ?? "not yet submitted"}.${record.readyForPublicRelease ? " Verified in the API response." : " Do not treat this video as ready for public release until the declaration is verified in YouTube Studio."}`;
+    card.append(heading, statusLine, channel, disclosure, progress, bytes, message);
     if (record.youtubeVideoId) {
       const id = document.createElement("p"); id.textContent = `YouTube video ID: ${record.youtubeVideoId}`;
       const link = document.createElement("a"); link.className = "text-link"; link.href = record.youtubeVideoUrl; link.target = "_blank"; link.rel = "noopener noreferrer"; link.textContent = "Open private video on YouTube";
-      card.append(id, link);
+      const studio = document.createElement("a"); studio.className = "text-link"; studio.href = record.youtubeStudioUrl || `https://studio.youtube.com/video/${encodeURIComponent(record.youtubeVideoId)}/edit`; studio.target = "_blank"; studio.rel = "noopener noreferrer"; studio.textContent = "Verify AI disclosure in YouTube Studio";
+      card.append(id, link, document.createTextNode(" · "), studio);
+      if (!record.readyForPublicRelease) {
+        const confirmDisclosure = document.createElement("button"); confirmDisclosure.type = "button"; confirmDisclosure.className = "secondary compact"; confirmDisclosure.textContent = "Confirm Studio disclosure review";
+        confirmDisclosure.addEventListener("click", async () => { if (!window.confirm("Confirm that you reviewed this exact private video in YouTube Studio and its altered/synthetic-content disclosure is set correctly?")) return; try { await apiJson(`/api/youtube/uploads/${encodeURIComponent(record.id)}/disclosure-confirmation`, { method: "POST" }); await loadYouTubeUploads(); } catch (error) { youtubeUploadStatus.textContent = error.message; } });
+        card.append(confirmDisclosure);
+      }
     }
     if (record.canResume) {
       const resume = document.createElement("button"); resume.type = "button"; resume.className = "secondary compact"; resume.textContent = "Resume saved session";
@@ -1585,7 +1601,7 @@ async function reviewYouTubeUploadPlan() {
   try {
     const data = await apiJson("/api/youtube/uploads/plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ filename: youtubeUploadSource.value, title: youtubeUploadTitle.value, description: youtubeUploadDescription.value, tags: youtubeUploadTags.value }) });
     approvedYouTubeUploadPlan = data.plan; const plan = data.plan;
-    const summary = document.createElement("p"); summary.textContent = `PRIVATE upload · ${plan.source.filename} · ${formatUploadBytes(plan.source.size)} · ${formatUploadDuration(plan.source.duration)} · Destination: ${plan.channel.name}${plan.channel.handle ? ` (${plan.channel.handle})` : ""} · Channel ID: ${plan.channel.id}`;
+    const summary = document.createElement("p"); summary.textContent = `PRIVATE upload · ${plan.source.filename} · ${formatUploadBytes(plan.source.size)} · ${formatUploadDuration(plan.source.duration)} · Destination: ${plan.channel.name}${plan.channel.handle ? ` (${plan.channel.handle})` : ""} · Channel ID: ${plan.channel.id} · Altered/synthetic content: YES (${plan.disclosureReason})`;
     const start = document.createElement("button"); start.type = "button"; start.textContent = "Upload privately to YouTube"; start.addEventListener("click", startYouTubeUpload);
     youtubeUploadPlanDetails.replaceChildren(summary, start); youtubeUploadStatus.textContent = "Review the exact destination and PRIVATE visibility, then explicitly confirm the upload.";
   } catch (error) { youtubeUploadStatus.textContent = error.message; }

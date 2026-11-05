@@ -87,6 +87,7 @@ export class ProjectStore {
       const updated = { ...project };
       if (Object.hasOwn(changes, "name")) updated.name = validateText(changes.name, "Project name", 1, 100);
       if (Object.hasOwn(changes, "theme")) updated.theme = validateText(changes.theme, "Project theme", 1, 2000);
+      if (Object.hasOwn(changes, "thematicOpening")) assignOptionalOpening(updated, changes.thematicOpening);
       return this.#mutateAndPersist(() => Object.assign(project, updated), project);
     });
   }
@@ -137,11 +138,13 @@ export class ProjectStore {
       const project = this.#findProject(projectId);
       const track = project.tracks.find((candidate) => candidate.id === trackId);
       if (!track) throw new ProjectNotFoundError("Planned track not found.");
-      if (track.status === "Generated") throw new ProjectValidationError("Generated planned tracks cannot be edited.");
+      const fields = Object.keys(changes ?? {}); const openingOnly = fields.length === 1 && fields[0] === "thematicOpening";
+      if (track.status === "Generated" && !openingOnly) throw new ProjectValidationError("Generated planned tracks cannot be edited except for their YouTube thematic opening.");
       const updated = { ...track };
       if (Object.hasOwn(changes, "title")) updated.title = validateText(changes.title, "Track title", 1, 120);
       if (Object.hasOwn(changes, "direction")) updated.direction = validateText(changes.direction, "Musical direction", 1, 1000);
       if (Object.hasOwn(changes, "prompt")) updated.prompt = validateText(changes.prompt, "Generation prompt", 10, 2000);
+      if (Object.hasOwn(changes, "thematicOpening")) assignOptionalOpening(updated, changes.thematicOpening);
       return this.#mutateAndPersist(() => Object.assign(track, updated), track);
     });
   }
@@ -379,6 +382,15 @@ function validateText(value, label, minimum, maximum) {
     throw new ProjectValidationError(`${label} must be between ${minimum} and ${maximum} characters.`);
   }
   return text;
+}
+
+function assignOptionalOpening(target, value) {
+  const opening = String(value ?? "").replace(/\s+/g, " ").trim();
+  if (!opening) { delete target.thematicOpening; return; }
+  if (opening.length > 180) throw new ProjectValidationError("Thematic opening must not exceed 180 characters.");
+  if (!/^Music for\s+\S/.test(opening)) throw new ProjectValidationError('Thematic opening must begin with “Music for”.');
+  if (!/[.!?]$/.test(opening)) throw new ProjectValidationError("Thematic opening must be a complete sentence ending in punctuation.");
+  target.thematicOpening = opening;
 }
 
 function validateSourcePlan(sourcePlan) {

@@ -46,6 +46,22 @@ export function buildMetadataCopy({ project, track, classification, durationLabe
   const characteristics = supportedCharacteristics(clean); if (characteristics.length) identityParts.push(`shaped by ${naturalJoin(characteristics.slice(0, 3))}`); if (influences.length) identityParts.push(`with ${naturalJoin(influences.map((item) => `${item.toLowerCase()} influences`))}`);
   return { introduction: normalizeSentence(intro), identity: normalizeSentence(identityParts.join(", ")), genre, primaryGenres: classification.primary.map(publicGenreEvidence), secondaryInfluences: classification.influences.map(publicGenreEvidence), omittedFields: [!intro ? "atmospheric introduction (insufficient supported scene or mood information)" : "", !characteristics.length ? "distinctive musical characteristics (insufficient support)" : ""].filter(Boolean) };
 }
+
+export function thematicOpening(project, track) {
+  const manual = String(track?.thematicOpening ?? project?.thematicOpening ?? "").replace(/\s+/g, " ").trim();
+  if (manual) return { text: manual, source: track?.thematicOpening ? "track override" : "project" };
+  const evidence = [track?.title, track?.direction, project?.name, project?.theme].filter(Boolean).join(" ").toLowerCase().replace(/\b(?:no|not|avoid(?:ing)?|without|never)\b[^.!?;,]{0,50}/g, " ");
+  const suggestions = [
+    [/\b(?:after midnight|hours after midnight)\b/, "Music for the hours after midnight."],
+    [/\b(?:late nights?|night shift)\b/, "Music for the late nights."],
+    [/\b(?:the fallen|fallen heroes?|fallen crew)\b/, "Music for the fallen."],
+    [/\bdebts? (?:that|which) come due\b/, "Music for debts that come due."],
+    [/\b(?:last|final) (?:job|heist|run)\b/, "Music for the last job."],
+    [/\b(?:things|everything) (?:go|goes|went) wrong\b/, "Music for when things go wrong."],
+  ];
+  const match = suggestions.find(([pattern]) => pattern.test(evidence));
+  return match ? { text: match[1], source: "deterministic suggestion" } : { text: "", source: "insufficient evidence" };
+}
 export function groundedScene(project, track) {
   const values = [track?.direction, project?.theme].map((value) => String(value ?? "").replace(/\s+/g, " ").trim()).filter(Boolean);
   for (const raw of values) {

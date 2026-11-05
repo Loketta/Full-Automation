@@ -10,5 +10,7 @@ test("upload UI is private-only, confirms before start, and exposes saved-sessio
   assert.ok(startFunction.indexOf("window.confirm(buildYouTubeUploadConfirmation(plan))") < startFunction.indexOf('apiJson("/api/youtube/uploads"'));
   assert.match(app, /Resume saved session/); assert.match(app, /No new YouTube video or upload session will be created/);
   assert.match(app, /Altered\/synthetic content: YES/); assert.match(app, /Confirm Studio disclosure review/); assert.match(app, /studio\.youtube\.com\/video/);
+  assert.match(html, /Finish YouTube Upload/); assert.match(html, /Generate six frame candidates/); assert.match(app, /Confirm end screen configured/); assert.match(app, /uploadReviewedThumbnail/); assert.match(app, /Audience — Not made for kids/);
+  const thumbnailFunction = app.slice(app.indexOf("async function uploadReviewedThumbnail"), app.indexOf("async function finishingAction")); assert.ok(thumbnailFunction.indexOf("window.confirm") < thumbnailFunction.indexOf("/thumbnail`"));
   assert.doesNotMatch(app, /sessionUrl|accessToken|refreshToken/);
 });

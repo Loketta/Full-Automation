@@ -267,6 +267,27 @@
       <div id="youtube-upload-plan-details" class="youtube-upload-plan"></div>
       <p id="youtube-upload-status" role="status" aria-live="polite">Loading completed compilations and upload records…</p>
       <div id="youtube-upload-records" class="youtube-upload-records"></div>
+
+      <section class="youtube-finishing" aria-labelledby="youtube-finishing-heading">
+        <p class="eyebrow">POST-UPLOAD REVIEW</p>
+        <h3 id="youtube-finishing-heading">Finish YouTube Upload</h3>
+        <p>Review an existing completed private upload. These controls never create another video or change its visibility.</p>
+        <label for="youtube-finishing-record">Completed upload</label>
+        <select id="youtube-finishing-record"><option value="">Choose a completed upload</option></select>
+        <div id="youtube-finishing-details"></div>
+        <div id="youtube-thumbnail-controls" hidden>
+          <div class="track-actions">
+            <button id="youtube-thumbnail-generate" type="button">Generate six frame candidates</button>
+            <label for="youtube-thumbnail-timestamp">Custom timestamp (seconds)</label>
+            <input id="youtube-thumbnail-timestamp" type="number" min="0" step="0.001">
+            <button id="youtube-thumbnail-custom" class="secondary" type="button">Add custom frame</button>
+          </div>
+          <fieldset><legend>Select an unmodified video frame</legend><div id="youtube-thumbnail-grid" class="youtube-thumbnail-grid"></div></fieldset>
+          <button id="youtube-thumbnail-review" type="button" disabled>Review thumbnail upload</button>
+          <div id="youtube-thumbnail-plan" class="youtube-upload-plan"></div>
+        </div>
+        <p id="youtube-finishing-status" role="status" aria-live="polite">Loading completed uploads…</p>
+      </section>
     </section>
 
     <section class="library-section" aria-labelledby="library-heading">

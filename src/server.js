@@ -14,6 +14,7 @@ import { CompilationVideoService } from "./compilation-video.js";
 import { YouTubeConnectionService } from "./youtube.js";
 import { YouTubeUploadService, YouTubeUploadStore } from "./youtube-uploads.js";
 import { YouTubeMetadataService, YouTubeMetadataStore } from "./youtube-metadata.js";
+import { YouTubeFinishingService } from "./youtube-finishing.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const port = Number.parseInt(process.env.PORT ?? "3000", 10);
@@ -63,6 +64,8 @@ try {
   const youtubeUploadStore = new YouTubeUploadStore(outputDirectory, process.env.YOUTUBE_OAUTH_CLIENT_SECRET);
   const youtubeUploadService = new YouTubeUploadService(outputDirectory, youtubeService, youtubeUploadStore, { ffprobe: process.env.FFPROBE_PATH || "ffprobe" });
   await youtubeUploadService.initialize();
+  const youtubeFinishingService = new YouTubeFinishingService(outputDirectory, youtubeService, youtubeUploadStore, { ffmpeg: process.env.FFMPEG_PATH || "ffmpeg", ffprobe: process.env.FFPROBE_PATH || "ffprobe" });
+  await youtubeFinishingService.initialize();
   const youtubeMetadataStore = new YouTubeMetadataStore(outputDirectory);
   const youtubeMetadataService = new YouTubeMetadataService({ connection: youtubeService, store: youtubeMetadataStore, projects, library, mixStore, mixService, uploadService: youtubeUploadService, compilationVideoService, bundledAnalysisPath: path.join(projectRoot, "channel-analysis", "beyond-the-blackwall-analysis.json") });
   await youtubeMetadataService.initialize();
@@ -78,6 +81,7 @@ try {
     compilationVideoService,
     youtubeService,
     youtubeUploadService,
+    youtubeFinishingService,
     youtubeMetadataService,
     startupGenerationBlock: replacementRecovery.pending ? {
       blocked: true,

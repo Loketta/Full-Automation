@@ -10,7 +10,7 @@ import { VIDEO_EXPORTS_DIRECTORY } from "./video.js";
 import { MIXES_DIRECTORY } from "./mixes.js";
 import { COMPILATION_VIDEOS_DIRECTORY } from "./compilation-video.js";
 
-export function createApp({ client, library, projects, projectPlans, batches, videoService, mixStore, mixService, compilationVideoService, youtubeService, youtubeUploadService, youtubeMetadataService, outputDirectory, publicDirectory, logger = console, apiKey = "", startupGenerationBlock }) {
+export function createApp({ client, library, projects, projectPlans, batches, videoService, mixStore, mixService, compilationVideoService, youtubeService, youtubeUploadService, youtubeFinishingService, youtubeMetadataService, outputDirectory, publicDirectory, logger = console, apiKey = "", startupGenerationBlock }) {
   const app = express();
   let generationInProgress = false;
   const batchCoordinator = batches ? new BatchCoordinator({
@@ -231,6 +231,18 @@ export function createApp({ client, library, projects, projectPlans, batches, vi
       try { return response.json({ upload: await youtubeUploadService.confirmDisclosure(request.params.uploadId) }); }
       catch (error) { return sendYouTubeUploadError(response, error, logger); }
     });
+  }
+
+  if (youtubeFinishingService) {
+    app.get("/api/youtube/finishing", async (_request, response) => { try { return response.json({ records: await youtubeFinishingService.discover() }); } catch (error) { return sendYouTubeUploadError(response, error, logger); } });
+    app.get("/api/youtube/finishing/:uploadId", (request, response) => { try { return response.json({ record: youtubeFinishingService.get(request.params.uploadId) }); } catch (error) { return sendYouTubeUploadError(response, error, logger); } });
+    app.post("/api/youtube/finishing/:uploadId/declarations/refresh", async (request, response) => { if (!isSameOriginRequest(request)) return response.status(403).json({ error: "YouTube finishing actions are allowed only from this local application." }); try { return response.json({ record: await youtubeFinishingService.refreshDeclarations(request.params.uploadId) }); } catch (error) { return sendYouTubeUploadError(response, error, logger); } });
+    app.post("/api/youtube/finishing/:uploadId/audience-confirmation", async (request, response) => { if (!isSameOriginRequest(request)) return response.status(403).json({ error: "YouTube finishing actions are allowed only from this local application." }); try { return response.json({ record: await youtubeFinishingService.confirmAudience(request.params.uploadId) }); } catch (error) { return sendYouTubeUploadError(response, error, logger); } });
+    app.post("/api/youtube/finishing/:uploadId/end-screen-confirmation", async (request, response) => { if (!isSameOriginRequest(request)) return response.status(403).json({ error: "YouTube finishing actions are allowed only from this local application." }); try { return response.json({ record: await youtubeFinishingService.confirmEndScreen(request.params.uploadId) }); } catch (error) { return sendYouTubeUploadError(response, error, logger); } });
+    app.post("/api/youtube/finishing/:uploadId/candidates", async (request, response) => { if (!isSameOriginRequest(request)) return response.status(403).json({ error: "YouTube finishing actions are allowed only from this local application." }); try { return response.json({ record: await youtubeFinishingService.generateCandidates(request.params.uploadId, request.body?.timestamp) }); } catch (error) { return sendYouTubeUploadError(response, error, logger); } });
+    app.get("/api/youtube/finishing/:uploadId/candidates/:candidateId", async (request, response) => { try { return response.sendFile(await youtubeFinishingService.candidateFile(request.params.uploadId, request.params.candidateId), { headers: { "Cache-Control": "no-store", "Content-Type": "image/jpeg" } }); } catch (error) { return sendYouTubeUploadError(response, error, logger); } });
+    app.post("/api/youtube/finishing/:uploadId/thumbnail/plan", async (request, response) => { if (!isSameOriginRequest(request)) return response.status(403).json({ error: "YouTube finishing actions are allowed only from this local application." }); try { return response.json({ plan: await youtubeFinishingService.planThumbnail(request.params.uploadId, request.body?.candidateId) }); } catch (error) { return sendYouTubeUploadError(response, error, logger); } });
+    app.post("/api/youtube/finishing/:uploadId/thumbnail", async (request, response) => { if (!isSameOriginRequest(request)) return response.status(403).json({ error: "YouTube finishing actions are allowed only from this local application." }); try { return response.json({ record: await youtubeFinishingService.uploadThumbnail({ recordId: request.params.uploadId, candidateId: request.body?.candidateId, snapshot: request.body?.snapshot }) }); } catch (error) { return sendYouTubeUploadError(response, error, logger); } });
   }
 
   if (youtubeMetadataService) {

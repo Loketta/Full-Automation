@@ -152,6 +152,7 @@ export class YouTubeConnectionService {
     const client = this.#authorizedClient();
     return {
       channel: structuredClone(this.connection.channel),
+      youtube: this.youtubeFactory(client),
       getAccessToken: async () => {
         const result = await client.getAccessToken();
         const token = typeof result === "string" ? result : result?.token;

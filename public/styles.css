@@ -123,6 +123,12 @@ select { display: block; margin-top: .45rem; padding: .55rem .7rem; border: 1px 
 .youtube-upload-record { padding: .85rem; border: 1px solid #3d4664; border-radius: 10px; background: #0d101a; }
 .youtube-upload-record p { margin: .35rem 0; overflow-wrap: anywhere; }
 .youtube-upload-record progress { width: 100%; }
+.youtube-finishing { margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid #3d4664; }
+.youtube-finishing h3 { font-size: 1.5rem; }
+.youtube-thumbnail-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; margin: .75rem 0; }
+.youtube-thumbnail-option { display: grid; gap: .35rem; padding: .5rem; border: 1px solid #3d4664; border-radius: 8px; cursor: pointer; }
+.youtube-thumbnail-option img { width: 100%; height: auto; aspect-ratio: auto; display: block; }
+@media (max-width: 720px) { .youtube-thumbnail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .youtube-metadata-section { margin-top: 3rem; }
 .youtube-metadata-section textarea { min-height: 110px; }
 .youtube-metadata-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; margin: 1rem 0; }

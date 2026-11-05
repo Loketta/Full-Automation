@@ -82,6 +82,16 @@ const youtubeUploadPlanButton = document.querySelector("#youtube-upload-plan");
 const youtubeUploadPlanDetails = document.querySelector("#youtube-upload-plan-details");
 const youtubeUploadStatus = document.querySelector("#youtube-upload-status");
 const youtubeUploadRecords = document.querySelector("#youtube-upload-records");
+const youtubeFinishingRecord = document.querySelector("#youtube-finishing-record");
+const youtubeFinishingDetails = document.querySelector("#youtube-finishing-details");
+const youtubeFinishingStatus = document.querySelector("#youtube-finishing-status");
+const youtubeThumbnailControls = document.querySelector("#youtube-thumbnail-controls");
+const youtubeThumbnailGenerate = document.querySelector("#youtube-thumbnail-generate");
+const youtubeThumbnailTimestamp = document.querySelector("#youtube-thumbnail-timestamp");
+const youtubeThumbnailCustom = document.querySelector("#youtube-thumbnail-custom");
+const youtubeThumbnailGrid = document.querySelector("#youtube-thumbnail-grid");
+const youtubeThumbnailReview = document.querySelector("#youtube-thumbnail-review");
+const youtubeThumbnailPlan = document.querySelector("#youtube-thumbnail-plan");
 const youtubeStyleImport = document.querySelector("#youtube-style-import");
 const youtubeStyleRefresh = document.querySelector("#youtube-style-refresh");
 const youtubeStyleSave = document.querySelector("#youtube-style-save");
@@ -132,6 +142,9 @@ let youtubeUploadPoll;
 let generatedYouTubeMetadata;
 let proposedYouTubeStyle;
 let currentYoutubeGenreProfiles = [];
+let youtubeFinishingRecords = [];
+let selectedThumbnailCandidateId = "";
+let approvedThumbnailPlan;
 
 player.volume = Number(volume.value);
 volume.addEventListener("input", () => {
@@ -185,6 +198,7 @@ loadMixes();
 loadCompilationSources();
 loadYouTubeConnection();
 loadYouTubeUploads();
+loadYouTubeFinishing();
 loadYouTubeMetadata();
 
 compilationRefresh.addEventListener("click", loadCompilationSources);
@@ -195,6 +209,10 @@ compilationVideoRecoveryPlanButton.addEventListener("click", reviewVideoRecovery
 youtubeConnect.addEventListener("click", connectYouTube);
 youtubeDisconnect.addEventListener("click", disconnectYouTube);
 youtubeUploadPlanButton.addEventListener("click", reviewYouTubeUploadPlan);
+youtubeFinishingRecord.addEventListener("change", () => { selectedThumbnailCandidateId = ""; approvedThumbnailPlan = undefined; renderYouTubeFinishing(); });
+youtubeThumbnailGenerate.addEventListener("click", () => generateThumbnailCandidates());
+youtubeThumbnailCustom.addEventListener("click", () => generateThumbnailCandidates(youtubeThumbnailTimestamp.value));
+youtubeThumbnailReview.addEventListener("click", reviewThumbnailUpload);
 youtubeStyleImport.addEventListener("click", importYouTubeStyle);
 youtubeStyleRefresh.addEventListener("click", importYouTubeStyle);
 youtubeStyleSave.addEventListener("click", saveYouTubeStyle);
@@ -1438,6 +1456,77 @@ async function loadYouTubeUploads() {
   } catch (error) { youtubeUploadStatus.textContent = error.message; }
 }
 
+async function loadYouTubeFinishing() {
+  try {
+    const data = await apiJson("/api/youtube/finishing"); const selected = youtubeFinishingRecord.value;
+    youtubeFinishingRecords = data.records;
+    youtubeFinishingRecord.replaceChildren(new Option("Choose a completed upload", ""), ...data.records.map((record) => new Option(`${record.title} — ${record.channelName ?? record.channelId}`, record.id)));
+    if (data.records.some((record) => record.id === selected)) youtubeFinishingRecord.value = selected;
+    renderYouTubeFinishing();
+  } catch (error) { youtubeFinishingStatus.textContent = error.message; }
+}
+
+function renderYouTubeFinishing() {
+  youtubeFinishingDetails.replaceChildren(); youtubeThumbnailGrid.replaceChildren(); youtubeThumbnailPlan.replaceChildren(); approvedThumbnailPlan = undefined;
+  const record = youtubeFinishingRecords.find((item) => item.id === youtubeFinishingRecord.value); youtubeThumbnailControls.hidden = !record;
+  if (!record) { youtubeFinishingStatus.textContent = youtubeFinishingRecords.length ? "Choose a completed private upload to review it." : "No completed YouTube upload records are available."; return; }
+  const summary = document.createElement("p"); summary.textContent = `${record.title} · Channel: ${record.channelName ?? "Verified channel"} (${record.channelId}) · Privacy: PRIVATE`;
+  const declarations = document.createElement("p"); declarations.textContent = `Audience — Not made for kids: ${record.audienceStatus ?? "SubmittedUnverified"}. Altered/synthetic media: ${record.disclosureStatus ?? "SubmittedUnverified"}.`;
+  const refresh = actionButton("Refresh declarations from YouTube", "secondary compact", async () => { if (!window.confirm("Read the declarations for this exact private video from YouTube? No video settings will be changed.")) return; await finishingAction(`/api/youtube/finishing/${encodeURIComponent(record.id)}/declarations/refresh`); });
+  const studio = document.createElement("a"); studio.className = "text-link"; studio.href = record.youtubeStudioUrl; studio.target = "_blank"; studio.rel = "noopener noreferrer"; studio.textContent = "Open this private video in YouTube Studio";
+  const audience = actionButton("Confirm Studio audience review", "secondary compact", async () => { if (!window.confirm("Confirm that this exact video's Audience setting is Not made for kids in YouTube Studio?")) return; await finishingAction(`/api/youtube/finishing/${encodeURIComponent(record.id)}/audience-confirmation`); });
+  const thumbnail = document.createElement("p"); thumbnail.textContent = `Thumbnail: ${record.thumbnailState?.status ?? "Pending"}${record.thumbnailState?.message ? ` — ${record.thumbnailState.message}` : ""}`;
+  youtubeFinishingDetails.append(summary, declarations, refresh, document.createTextNode(" "), audience, document.createElement("br"), studio, thumbnail);
+  renderEndScreen(record); renderThumbnailCandidates(record);
+  youtubeFinishingStatus.textContent = "Finishing actions remain separate: generating frames is local; uploading a selected thumbnail requires another explicit confirmation.";
+}
+
+function renderEndScreen(record) {
+  const box = document.createElement("div"); box.className = "youtube-upload-plan"; const status = document.createElement("p"); status.textContent = `End screen: ${record.endScreen.status}. ${record.endScreen.message ?? record.endScreen.warning ?? ""}`; box.append(status);
+  if (record.previousCompilation) {
+    const source = document.createElement("p"); source.textContent = `Suggested previous compilation: ${record.previousCompilation.title} (${record.previousCompilation.videoId}). Confirm that it already contains an end screen before importing.`;
+    const sourceLink = document.createElement("a"); sourceLink.className = "text-link"; sourceLink.href = record.previousCompilation.studioUrl; sourceLink.target = "_blank"; sourceLink.rel = "noopener noreferrer"; sourceLink.textContent = "Open suggested source in Studio";
+    const steps = document.createElement("ol"); for (const text of ["Open the current compilation in YouTube Studio.", "Open End Screens.", "Select Import from video.", "Choose the suggested previous compilation.", "Review the imported elements.", "Save."]) { const item = document.createElement("li"); item.textContent = text; steps.append(item); }
+    box.append(source, sourceLink, steps);
+    if (record.endScreen.status !== "Completed") box.append(actionButton("Confirm end screen configured", "secondary compact", async () => { if (!window.confirm("Confirm that you manually configured and saved the end screen for this exact video?")) return; await finishingAction(`/api/youtube/finishing/${encodeURIComponent(record.id)}/end-screen-confirmation`); }));
+  }
+  youtubeFinishingDetails.append(box);
+}
+
+function renderThumbnailCandidates(record) {
+  const selected = selectedThumbnailCandidateId || record.thumbnailState?.selectedCandidateId || "";
+  for (const candidate of record.candidates ?? []) {
+    const label = document.createElement("label"); label.className = "youtube-thumbnail-option";
+    const input = document.createElement("input"); input.type = "radio"; input.name = "youtube-thumbnail"; input.value = candidate.id; input.checked = candidate.id === selected; input.setAttribute("aria-label", `Select frame at ${candidate.timestamp.toFixed(3)} seconds`);
+    input.addEventListener("change", () => { selectedThumbnailCandidateId = candidate.id; approvedThumbnailPlan = undefined; youtubeThumbnailPlan.replaceChildren(); youtubeThumbnailReview.disabled = false; });
+    const image = document.createElement("img"); image.src = candidate.previewUrl; image.alt = `Unmodified frame at ${candidate.timestamp.toFixed(3)} seconds`; image.loading = "lazy";
+    const caption = document.createElement("span"); caption.textContent = `${candidate.timestamp.toFixed(3)} s · ${candidate.width}×${candidate.height}`; label.append(input, image, caption); youtubeThumbnailGrid.append(label);
+  }
+  youtubeThumbnailReview.disabled = !(record.candidates ?? []).some((item) => item.id === selected);
+}
+
+async function generateThumbnailCandidates(timestamp) {
+  const record = youtubeFinishingRecords.find((item) => item.id === youtubeFinishingRecord.value); if (!record) return;
+  youtubeThumbnailGenerate.disabled = true; youtubeThumbnailCustom.disabled = true; youtubeFinishingStatus.textContent = "Extracting unmodified JPEG frame(s) locally with FFmpeg…";
+  try { await apiJson(`/api/youtube/finishing/${encodeURIComponent(record.id)}/candidates`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(timestamp === undefined ? {} : { timestamp }) }); selectedThumbnailCandidateId = ""; await loadYouTubeFinishing(); }
+  catch (error) { youtubeFinishingStatus.textContent = error.message; }
+  finally { youtubeThumbnailGenerate.disabled = false; youtubeThumbnailCustom.disabled = false; }
+}
+
+async function reviewThumbnailUpload() {
+  const record = youtubeFinishingRecords.find((item) => item.id === youtubeFinishingRecord.value); const candidateId = selectedThumbnailCandidateId || record?.thumbnailState?.selectedCandidateId; if (!record || !candidateId) return;
+  try { const data = await apiJson(`/api/youtube/finishing/${encodeURIComponent(record.id)}/thumbnail/plan`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ candidateId }) }); approvedThumbnailPlan = data.plan; const summary = document.createElement("p"); summary.textContent = `Upload the selected JPEG frame at ${data.plan.timestamp.toFixed(3)} seconds to exact video ${data.plan.youtubeVideoId} on channel ${data.plan.channelId}. Privacy remains PRIVATE.`; const upload = actionButton("Upload selected thumbnail", "secondary compact", uploadReviewedThumbnail); youtubeThumbnailPlan.replaceChildren(summary, upload); youtubeFinishingStatus.textContent = "Review the exact video and channel, then explicitly confirm the thumbnail upload."; }
+  catch (error) { youtubeFinishingStatus.textContent = error.message; }
+}
+
+async function uploadReviewedThumbnail() {
+  const plan = approvedThumbnailPlan; if (!plan || !window.confirm(`Upload this selected frame to exact YouTube video ${plan.youtubeVideoId} on channel ${plan.channelId}? This does not upload a new video or change visibility.`)) return;
+  try { await apiJson(`/api/youtube/finishing/${encodeURIComponent(plan.recordId)}/thumbnail`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ candidateId: plan.candidateId, snapshot: plan.snapshot }) }); approvedThumbnailPlan = undefined; await loadYouTubeFinishing(); }
+  catch (error) { youtubeFinishingStatus.textContent = error.message; }
+}
+
+async function finishingAction(url) { await apiJson(url, { method: "POST" }); await loadYouTubeFinishing(); }
+
 async function loadYouTubeMetadata() {
   try { const data = await apiJson("/api/youtube/metadata"); renderYouTubeStyle(data); refreshYouTubeMetadataSelectors(); }
   catch (error) { youtubeStyleStatus.textContent = error.message; }
@@ -1574,8 +1663,9 @@ function renderYouTubeUploadRecords(records) {
     const progress = document.createElement("progress"); progress.max = 100; progress.value = record.progressPercent; progress.setAttribute("aria-label", `${record.title} upload progress`);
     const bytes = document.createElement("p"); bytes.textContent = `${formatUploadBytes(record.uploadedBytes)} of ${formatUploadBytes(record.sourceSize)} (${record.progressPercent.toFixed(1)}%)`;
     const message = document.createElement("p"); message.className = "track-meta"; message.textContent = record.message ?? "";
-    const disclosure = document.createElement("p"); disclosure.className = record.disclosureStatus === "Verified" ? "track-meta" : "warning"; disclosure.textContent = `YouTube altered/synthetic disclosure: ${record.disclosureStatus ?? "not yet submitted"}.${record.readyForPublicRelease ? " Verified in the API response." : " Do not treat this video as ready for public release until the declaration is verified in YouTube Studio."}`;
-    card.append(heading, statusLine, channel, disclosure, progress, bytes, message);
+    const audience = document.createElement("p"); audience.className = record.audienceStatus === "Verified" ? "track-meta" : "warning"; audience.textContent = `Audience — Not made for kids: ${record.audienceStatus ?? "not yet submitted"}.`;
+    const disclosure = document.createElement("p"); disclosure.className = record.disclosureStatus === "Verified" ? "track-meta" : "warning"; disclosure.textContent = `YouTube altered/synthetic disclosure: ${record.disclosureStatus ?? "not yet submitted"}.${record.readyForPublicRelease ? " Both declarations verified in the API response." : " Do not treat this video as ready for public release until both declarations are verified in YouTube Studio."}`;
+    card.append(heading, statusLine, channel, audience, disclosure, progress, bytes, message);
     if (record.youtubeVideoId) {
       const id = document.createElement("p"); id.textContent = `YouTube video ID: ${record.youtubeVideoId}`;
       const link = document.createElement("a"); link.className = "text-link"; link.href = record.youtubeVideoUrl; link.target = "_blank"; link.rel = "noopener noreferrer"; link.textContent = "Open private video on YouTube";
@@ -1601,7 +1691,7 @@ async function reviewYouTubeUploadPlan() {
   try {
     const data = await apiJson("/api/youtube/uploads/plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ filename: youtubeUploadSource.value, title: youtubeUploadTitle.value, description: youtubeUploadDescription.value, tags: youtubeUploadTags.value }) });
     approvedYouTubeUploadPlan = data.plan; const plan = data.plan;
-    const summary = document.createElement("p"); summary.textContent = `PRIVATE upload · ${plan.source.filename} · ${formatUploadBytes(plan.source.size)} · ${formatUploadDuration(plan.source.duration)} · Destination: ${plan.channel.name}${plan.channel.handle ? ` (${plan.channel.handle})` : ""} · Channel ID: ${plan.channel.id} · Altered/synthetic content: YES (${plan.disclosureReason})`;
+    const summary = document.createElement("p"); summary.textContent = `PRIVATE upload · ${plan.source.filename} · ${formatUploadBytes(plan.source.size)} · ${formatUploadDuration(plan.source.duration)} · Destination: ${plan.channel.name}${plan.channel.handle ? ` (${plan.channel.handle})` : ""} · Channel ID: ${plan.channel.id} · Audience: Not made for kids · Altered/synthetic content: YES (${plan.disclosureReason})`;
     const start = document.createElement("button"); start.type = "button"; start.textContent = "Upload privately to YouTube"; start.addEventListener("click", startYouTubeUpload);
     youtubeUploadPlanDetails.replaceChildren(summary, start); youtubeUploadStatus.textContent = "Review the exact destination and PRIVATE visibility, then explicitly confirm the upload.";
   } catch (error) { youtubeUploadStatus.textContent = error.message; }

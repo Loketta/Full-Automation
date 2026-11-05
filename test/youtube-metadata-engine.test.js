@@ -20,6 +20,14 @@ test("genre ranking ignores negation and does not promote one unrelated track", 
   const hybrid = classifyGenres({ name: "Forge", theme: "A genuine industrial metal hybrid combining industrial electronics and metal guitar.", tracks: [] }, profiles); assert.deepEqual(new Set(hybrid.primary.map((item) => item.genre)), new Set(["industrial", "metal"]));
 });
 
+test("punk setting terms do not independently establish metal music", () => {
+  const reviewed = [...profiles.filter((profile) => profile.genre !== "metal"), { genre: "metal", keywords: ["metal", "heavy metal", "punk", "cyberpunk", "synthpunk", "distorted guitar"], tags: ["metal music"], hashtags: ["#metal"] }];
+  for (const theme of ["Instrumental cyberpunk city soundtrack.", "A synthpunk neon-night collection.", "Punk-inspired futuristic visual setting with electronic music."]) {
+    const classification = classifyGenres({ name: "Neon District", theme, tracks: [] }, reviewed); assert.equal([...classification.primary, ...classification.influences].some((item) => item.genre === "metal"), false);
+  }
+  const metal = classifyGenres({ name: "Iron Orbit", theme: "Heavy metal music with explicitly distorted guitar and double-kick drums.", tracks: [] }, reviewed); assert.equal(metal.primary.some((item) => item.genre === "metal"), true);
+});
+
 test("listener copy removes production instructions and remains stable and natural", () => {
   const project = { id: "afterhours", name: "Industrial Afterhours", theme: "A cohesive instrumental cyberpunk collection exploring an industrial city after midnight. Dark synthwave, mechanical techno, atmospheric tension and restrained melodic hooks; no vocals.", tracks: [{ id: "a", title: "Foundry", direction: "Industrial rhythm", prompt: "110 BPM, D minor, sidechain the bass, model output instrumental only, no vocals, avoid metal." }] };
   const classification = classifyGenres(project, profiles); const first = buildMetadataCopy({ project, classification, durationLabel: "1 Hour" }); const second = buildMetadataCopy({ project, classification, durationLabel: "1 Hour" }); assert.deepEqual(first, second); assert.equal(first.genre, "Dark Industrial & Cyberpunk Synthwave"); assert.match(first.introduction, /after midnight|city keeps moving/i); assert.match(first.identity, /hour-long instrumental/i); assert.doesNotMatch(`${first.introduction} ${first.identity}`, /110 BPM|D minor|sidechain|model output|no vocals|\.\./i); assert.deepEqual(profileKeywords(classification.primary).includes("metal"), false); assert.doesNotMatch(profileKeywords(classification.primary).join(" "), /combat/i);

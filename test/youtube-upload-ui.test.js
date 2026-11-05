@@ -9,5 +9,6 @@ test("upload UI is private-only, confirms before start, and exposes saved-sessio
   const startFunction = app.slice(app.indexOf("async function startYouTubeUpload"), app.indexOf("async function resumeYouTubeUpload"));
   assert.ok(startFunction.indexOf("window.confirm(buildYouTubeUploadConfirmation(plan))") < startFunction.indexOf('apiJson("/api/youtube/uploads"'));
   assert.match(app, /Resume saved session/); assert.match(app, /No new YouTube video or upload session will be created/);
+  assert.match(app, /Altered\/synthetic content: YES/); assert.match(app, /Confirm Studio disclosure review/); assert.match(app, /studio\.youtube\.com\/video/);
   assert.doesNotMatch(app, /sessionUrl|accessToken|refreshToken/);
 });

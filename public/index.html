@@ -75,6 +75,9 @@
         <input id="project-name" maxlength="100">
         <label for="project-theme">Overarching musical theme</label>
         <textarea id="project-theme" maxlength="2000"></textarea>
+        <label for="project-thematic-opening">YouTube thematic opening</label>
+        <input id="project-thematic-opening" maxlength="180" placeholder="Music for the hours after midnight.">
+        <p class="track-meta">Optional when the saved project metadata supports a grounded suggestion. Enter a complete “Music for…” line to approve exact wording for this project.</p>
         <p id="project-created" class="track-meta"></p>
         <p class="warning"><strong>Project deletion keeps generated audio.</strong> MP3s remain available in the Track Library unless deleted there separately.</p>
 
@@ -209,6 +212,8 @@
         <label for="youtube-style-introduction">Recurring introduction</label><textarea id="youtube-style-introduction" maxlength="5000"></textarea>
         <p class="track-meta">Example compilation: <samp>Industrial Afterhours || Industrial Mix (1 Hour)</samp>. Example track: <samp>Neon Rain Protocol // Industrial</samp>. Introduction, reusable text, links and calls to action are optional.</p>
         <h3>Branding and optional description sections</h3>
+        <label for="youtube-style-ai-credit">AI-production credit</label><textarea id="youtube-style-ai-credit" maxlength="500"></textarea>
+        <p class="track-meta">This factual description credit is separate from YouTube's formal altered/synthetic-content declaration, which the upload request submits through <code>status.containsSyntheticMedia</code>.</p>
         <label for="youtube-style-reusable">Reusable description text</label><textarea id="youtube-style-reusable" maxlength="5000"></textarea>
         <label for="youtube-style-footer">Recurring footer</label><textarea id="youtube-style-footer" maxlength="5000"></textarea>
         <label for="youtube-style-links">Channel links, one per line</label><textarea id="youtube-style-links"></textarea>

@@ -73,7 +73,7 @@ export class YouTubeUploadService {
     if (this.store.list().some((record) => record.status === "OutcomeUncertain")) throw new UploadConflictError("An earlier upload has an uncertain outcome. Reconcile it manually before creating any new YouTube upload session.");
     const duplicate = this.store.list().find((record) => record.sourceFingerprint === source.fingerprint && record.channelId === context.channel.id && record.status !== "SessionExpired");
     if (duplicate) throw new UploadConflictError(`This source already has upload record ${duplicate.id} for the verified channel. A separate duplicate-upload workflow is required.`);
-    const plan = { source: { filename: input.filename, size: source.size, duration: source.duration, fingerprint: source.fingerprint }, title: metadata.title, description: metadata.description, tags: metadata.tags, visibility: "private", channel: context.channel };
+    const plan = { source: { filename: input.filename, size: source.size, duration: source.duration, fingerprint: source.fingerprint }, title: metadata.title, description: metadata.description, tags: metadata.tags, visibility: "private", containsSyntheticMedia: true, disclosureReason: "Google Lyria-generated music is the main focus of this video.", channel: context.channel };
     return { ...plan, snapshot: approvalSnapshot(plan) };
   }
   async start(input) {
@@ -83,7 +83,7 @@ export class YouTubeUploadService {
       if (plan.snapshot !== input.snapshot) throw new UploadConflictError("The upload plan, source file, or verified channel changed. Review and approve a new plan.");
       const now = this.now().toISOString();
       const sourceDetails = await this.fs.stat(this.#sourcePath(plan.source.filename));
-      const record = await this.store.create({ id: this.randomUUID(), sourceFilename: plan.source.filename, sourceFingerprint: plan.source.fingerprint, sourceSize: plan.source.size, sourceMtimeMs: sourceDetails.mtimeMs, sourceDuration: plan.source.duration, title: plan.title, description: plan.description, tags: plan.tags, visibility: "private", channelId: plan.channel.id, channelName: plan.channel.name, status: "Starting", uploadedBytes: 0, sessionUrl: undefined, youtubeVideoId: undefined, youtubeVideoUrl: undefined, createdAt: now, updatedAt: now, message: "Creating a private resumable YouTube upload session." });
+      const record = await this.store.create({ id: this.randomUUID(), sourceFilename: plan.source.filename, sourceFingerprint: plan.source.fingerprint, sourceSize: plan.source.size, sourceMtimeMs: sourceDetails.mtimeMs, sourceDuration: plan.source.duration, title: plan.title, description: plan.description, tags: plan.tags, visibility: "private", containsSyntheticMedia: true, disclosureStatus: "Pending", channelId: plan.channel.id, channelName: plan.channel.name, status: "Starting", uploadedBytes: 0, sessionUrl: undefined, youtubeVideoId: undefined, youtubeVideoUrl: undefined, createdAt: now, updatedAt: now, message: "Creating a private resumable YouTube upload session with the synthetic-media disclosure enabled." });
       this.#launch(record.id, false);
       return publicRecord(record);
     });
@@ -98,6 +98,11 @@ export class YouTubeUploadService {
       const updated = await this.store.update(id, { status: "Uploading", message: "Checking the existing YouTube session before resuming.", updatedAt: this.now().toISOString() });
       this.#launch(id, true); return publicRecord(updated);
     });
+  }
+  async confirmDisclosure(id) {
+    const record = this.store.get(id);
+    if (record.status !== "Completed" || !record.youtubeVideoId) throw new UploadConflictError("AI disclosure can be confirmed only for a completed private upload.");
+    return publicRecord(await this.store.update(id, { disclosureStatus: "ManuallyConfirmed", disclosureConfirmedAt: this.now().toISOString(), readyForPublicRelease: true, message: "The user confirmed reviewing the altered/synthetic-content declaration in YouTube Studio.", updatedAt: this.now().toISOString() }));
   }
   waitForIdle() { return this.runningPromise ?? Promise.resolve(); }
   #admit(operation) { const result = this.admissionQueue.then(operation, operation); this.admissionQueue = result.then(() => undefined, () => undefined); return result; }
@@ -118,7 +123,7 @@ export class YouTubeUploadService {
     if (context.channel.id !== record.channelId) throw new UploadConflictError("The verified YouTube channel changed after approval. Upload stopped.");
     if (!resume) {
       let session;
-      try { session = await this.transport.createSession({ token: await context.getAccessToken(), size: record.sourceSize, metadata: { snippet: { title: record.title, description: record.description, tags: record.tags, categoryId: "10" }, status: { privacyStatus: "private" } } }); }
+      try { session = await this.transport.createSession({ token: await context.getAccessToken(), size: record.sourceSize, metadata: { snippet: { title: record.title, description: record.description, tags: record.tags, categoryId: "10" }, status: { privacyStatus: "private", containsSyntheticMedia: true } } }); }
       catch { throw new UploadOutcomeUncertainError("The resumable session response was lost or failed. No replacement session was created; manual reconciliation is required."); }
       if (!session?.sessionUrl) throw new UploadOutcomeUncertainError("YouTube did not return a resumable session URL. No replacement session was created.");
       try { record = await this.store.update(id, { sessionUrl: session.sessionUrl, status: "Uploading", message: "Private upload session created.", updatedAt: this.now().toISOString() }); }
@@ -177,7 +182,9 @@ export class YouTubeUploadService {
   }
   async #complete(id, data) {
     if (!data?.id) throw new UploadOutcomeUncertainError("YouTube reported completion without a video ID. Manual reconciliation is required.");
-    try { await this.store.update(id, { status: "Completed", uploadedBytes: this.store.get(id).sourceSize, youtubeVideoId: data.id, youtubeVideoUrl: `https://www.youtube.com/watch?v=${encodeURIComponent(data.id)}`, sessionUrl: undefined, message: "Private upload completed. Review it manually in YouTube Studio.", completedAt: this.now().toISOString(), updatedAt: this.now().toISOString() }); }
+    const returned = data.status?.containsSyntheticMedia; const disclosureStatus = returned === true ? "Verified" : returned === false ? "Mismatch" : "SubmittedUnverified";
+    const disclosureMessage = disclosureStatus === "Verified" ? "YouTube returned containsSyntheticMedia: true." : disclosureStatus === "Mismatch" ? "YouTube returned containsSyntheticMedia: false despite the submitted declaration. Manual investigation is required before public release." : "The disclosure was submitted, but the completion response did not return its value. Verify it in YouTube Studio before public release.";
+    try { await this.store.update(id, { status: "Completed", uploadedBytes: this.store.get(id).sourceSize, youtubeVideoId: data.id, youtubeVideoUrl: `https://www.youtube.com/watch?v=${encodeURIComponent(data.id)}`, youtubeStudioUrl: `https://studio.youtube.com/video/${encodeURIComponent(data.id)}/edit`, sessionUrl: undefined, disclosureStatus, readyForPublicRelease: disclosureStatus === "Verified", message: `Private upload completed. ${disclosureMessage}`, completedAt: this.now().toISOString(), updatedAt: this.now().toISOString() }); }
     catch { throw new UploadOutcomeUncertainError(`YouTube returned completed video ID ${data.id}, but local completion could not be persisted. Do not upload again; inspect this video in YouTube Studio.`); }
   }
   async #inspectSource(filename) {

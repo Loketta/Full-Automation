@@ -226,6 +226,11 @@ export function createApp({ client, library, projects, projectPlans, batches, vi
       try { return response.status(202).json({ upload: await youtubeUploadService.resume(request.params.uploadId) }); }
       catch (error) { return sendYouTubeUploadError(response, error, logger); }
     });
+    app.post("/api/youtube/uploads/:uploadId/disclosure-confirmation", async (request, response) => {
+      if (!isSameOriginRequest(request)) return response.status(403).json({ error: "YouTube upload actions are allowed only from this local application." });
+      try { return response.json({ upload: await youtubeUploadService.confirmDisclosure(request.params.uploadId) }); }
+      catch (error) { return sendYouTubeUploadError(response, error, logger); }
+    });
   }
 
   if (youtubeMetadataService) {

@@ -6,5 +6,5 @@ export function formatUploadBytes(bytes) {
 }
 export function formatUploadDuration(seconds) { const value = Number(seconds) || 0; return `${Math.floor(value / 60)}:${String(Math.floor(value % 60)).padStart(2, "0")}`; }
 export function buildYouTubeUploadConfirmation(plan) {
-  return `Upload this completed compilation to YouTube?\n\nDestination: ${plan.channel.name}${plan.channel.handle ? ` (${plan.channel.handle})` : ""}\nChannel ID: ${plan.channel.id}\nFile: ${plan.source.filename}\nSize: ${formatUploadBytes(plan.source.size)}\nDuration: ${formatUploadDuration(plan.source.duration)}\nTitle: ${plan.title}\nVisibility: PRIVATE\n\nThis explicitly starts one resumable upload. It will not publish, schedule, or make the video Public or Unlisted.`;
+  return `Upload this completed compilation to YouTube?\n\nDestination: ${plan.channel.name}${plan.channel.handle ? ` (${plan.channel.handle})` : ""}\nChannel ID: ${plan.channel.id}\nFile: ${plan.source.filename}\nSize: ${formatUploadBytes(plan.source.size)}\nDuration: ${formatUploadDuration(plan.source.duration)}\nTitle: ${plan.title}\nVisibility: PRIVATE\nAltered/synthetic content: YES — Google Lyria-generated music\n\nThis explicitly starts one resumable upload. It will not publish, schedule, or make the video Public or Unlisted.`;
 }

@@ -256,6 +256,24 @@ YouTube metadata tests use mocked read-only channel, playlist and video response
 
 Channel-analysis tests use saved imported fixtures. They cover credential-free exports, exact dataset matching, strict structured-profile validation, source evidence, malformed responses, proposal isolation, explicit profile acceptance and preservation of manual fields. No automated test contacts an AI provider.
 
+### Thematic openings and AI disclosure
+
+Every generated description begins with one standalone `Music for …` line and a blank line. Set the project wording in **YouTube thematic opening**, or save a track-specific override in its planned-track card. Manual wording is whitespace-normalized but otherwise retained. Without manual wording, local deterministic rules suggest only phrases directly supported by saved metadata—for example, `after midnight` becomes `Music for the hours after midnight.` If no supported phrase exists, generation stops and asks for manual wording instead of inserting filler. A track override takes precedence over its project. A saved recurring introduction remains available as channel branding, but a second competing `Music for …` introduction is rejected for review.
+
+Representative output begins:
+
+```text
+Music for the hours after midnight.
+
+Industrial Afterhours is an hour-long instrumental dark industrial compilation…
+```
+
+The channel style profile also stores an editable factual production credit. Its conservative default is `Music generated with Google Lyria and curated for Beyond the Blackwall.` Do not add claims about composition, performance, arrangement or mixing unless those steps actually occurred. The credit appears in generated metadata and is part of the approval snapshot, so changing it invalidates stale approval.
+
+YouTube's official [`videos.insert` documentation](https://developers.google.com/youtube/data/reference/rest/v3/videos/insert) lists `status.containsSyntheticMedia` as writable, and the [video resource documentation](https://developers.google.com/youtube/data/reference/rest/v3/videos#status.containsSyntheticMedia) defines it as the channel owner's altered/synthetic-content disclosure. YouTube's [GenAI disclosure guidance](https://support.google.com/youtube/answer/14328491) includes AI-generated music when it is the video's main focus. Private uploads therefore submit `status.containsSyntheticMedia: true`; the application never substitutes `status.selfDeclaredMadeForKids` or a description disclaimer.
+
+The upload review prominently displays `Altered/synthetic content: YES`. A completed record shows **Verified** only when YouTube's response returns `containsSyntheticMedia: true`. If the completion response omits or contradicts the value, the record remains visibly outstanding and links directly to the private video's Studio editor. Review the **AI use** setting there before public release, then use **Confirm Studio disclosure review** to persist that manual check. This confirmation does not claim API verification. Upload visibility remains Private and no upload, publication or scheduling starts automatically.
+
 ## GitHub Actions tests
 
 GitHub automatically runs the full offline test suite for every pull request targeting `main` and every push to `main`. The workflow uses Node.js 24, installs the locked dependencies with `npm ci`, and runs `npm test` on an Ubuntu runner.

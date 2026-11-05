@@ -32,20 +32,29 @@ test("creates projects and preserves edits across restart", async (t) => {
   const store = new ProjectStore(output, dependencies);
   await store.initialize();
   const project = await store.create({ name: "Initial", theme: "Initial instrumental theme" });
-  await store.update(project.id, { name: "Renamed", theme: "Updated instrumental theme" });
+  await store.update(project.id, { name: "Renamed", theme: "Updated instrumental theme", thematicOpening: "  Music   for the late nights.  " });
   const track = await store.addTrack(project.id, {
     title: "Track A",
     direction: "Mechanical rhythm",
     prompt: "Instrumental mechanical cyberpunk rhythm with no vocals.",
   });
   await store.updateTrack(project.id, track.id, { title: "Track A Revised" });
+  await store.updateTrack(project.id, track.id, { thematicOpening: "Music for the last job." });
 
   const restarted = new ProjectStore(output, dependencies);
   const projects = await restarted.initialize();
   assert.equal(projects[0].name, "Renamed");
   assert.equal(projects[0].theme, "Updated instrumental theme");
+  assert.equal(projects[0].thematicOpening, "Music for the late nights.");
   assert.equal(projects[0].tracks[0].title, "Track A Revised");
   assert.equal(projects[0].tracks[0].status, "Pending");
+  assert.equal(projects[0].tracks[0].thematicOpening, "Music for the last job.");
+});
+
+test("generated tracks permit only a thematic-opening override", async (t) => {
+  const { output, dependencies } = await fixture(t); const store = new ProjectStore(output, dependencies); await store.initialize(); const project = await store.create({ name: "Generated", theme: "Instrumental theme" }); const track = await store.addTrack(project.id, { title: "Track", direction: "Direction", prompt: "Instrumental music for testing only." }); await store.linkGenerated(project.id, track.id, "library-id");
+  await store.updateTrack(project.id, track.id, { thematicOpening: "Music for debts that come due." }); assert.equal(store.getTrack(project.id, track.id).track.thematicOpening, "Music for debts that come due.");
+  await assert.rejects(() => store.updateTrack(project.id, track.id, { title: "Changed" }), /cannot be edited/i); await assert.rejects(() => store.update(project.id, { thematicOpening: "Generic opening" }), /begin with/i);
 });
 
 test("get returns a defensive project copy and uses the established not-found error", async (t) => {

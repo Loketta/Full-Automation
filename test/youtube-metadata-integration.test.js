@@ -14,6 +14,7 @@ test("metadata generation integrates the real local stores and reports invalid s
   const projects = new ProjectStore(output); const library = new TrackLibrary(output); const mixStore = new MixStore(output);
   await Promise.all([projects.initialize(), library.initialize(), mixStore.initialize()]);
   const project = await projects.import({ version: 1, name: "Synthetic Project", theme: "Instrumental cyberpunk industrial music.", tracks: ["Alpha", "Beta", "Gamma"].map((title) => ({ title, direction: "Industrial", prompt: `Instrumental cyberpunk industrial track for ${title}. No vocals.` })) });
+  await projects.update(project.id, { thematicOpening: "Music for the late nights." });
   const recordings = [];
   for (const [index, planned] of project.tracks.entries()) {
     const filename = `synthetic-${index}.mp3`; await writeFile(path.join(output, filename), `audio-${index}`);

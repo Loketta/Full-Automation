@@ -204,6 +204,20 @@ Legacy mixes may also contain recording IDs that older project files never linke
 
 Review-state checks follow the same boundary: verified chapters require every recording to be marked **Keep**. A chapterless draft may proceed with clearly identified missing or **Unreviewed** library state, but never treats that state as accepted; an explicit **Reject** blocks generation until the user deliberately changes the mix or review decision. Recording IDs, available titles, and review evidence are included in the metadata snapshot, so a later review change makes an earlier approval stale.
 
+### Deterministic metadata writing
+
+The metadata writer ranks the six approved genre profiles from saved project or track evidence. Project names and themes carry the most weight for compilations; an isolated term in one track prompt cannot redefine a whole collection. Negated phrases such as `no metal`, `avoid EDM`, and `not orchestral` are excluded. Titles use at most two primary genres, while separately supported influences may appear in the description. The preview lists the evidence term and source behind every selected genre, along with fields omitted because the saved metadata was insufficient.
+
+Listener-facing copy is assembled from a curated set of stable sentence structures. It can translate supported mood, setting, instrumental status, listening purpose, and a small set of musical characteristics, but it does not reproduce full generation prompts. BPM, key, model instructions, negative prompts, production constraints, and unsupported claims are omitted. Output is deterministic for the same saved inputs; it is intentionally conservative and remains editable before approval.
+
+Representative improvements produced by the deterministic writer:
+
+- Industrial: `Industrial Afterhours || industrial / synthwave / metal Mix (1 Hour)` becomes `Industrial Afterhours || Dark Industrial & Cyberpunk Synthwave Mix (1 Hour)`, opening with “The city keeps moving after midnight, carried by mechanical rhythms and dark synthesizer textures.”
+- Cyberpunk lo-fi: a generic `lo-fi / synthwave` label becomes `Neon Shallows || Cyberpunk Lo-Fi Mix (1 Hour)`, with a concise neon-city introduction supported by the project theme.
+- Sci-fi metal: a slash-separated `metal / space / synthwave` label becomes `Hyperspace Traveller || Metal & Sci-Fi Space Mix (1 Hour)`, while unsupported extra genres are omitted.
+
+Limitations: the writer cannot infer facts absent from project and track metadata, assess audio content, predict SEO performance, or determine audience response. Manually approved branding, links, calls to action, templates, and universal tags remain authoritative and are preserved.
+
 To create metadata, select a Music Project, an Audio Mix, and a completed compilation MP4. New compilation renders atomically record a provenance chain from the MP4 fingerprint to its WAV master, originating mix export snapshot, and retained crossfade timeline. Metadata generation requires that exact chain and rejects an independently selected or modified MP4. Track names come from the project's real accepted planned tracks. The generator validates that the timeline begins at zero, remains within the completed video's duration, matches its recorded render duration, and leaves at least ten seconds for the final chapter. YouTube requires a first timestamp at 00:00, at least three timestamps in ascending order, and chapters of at least ten seconds; the application enforces those [official chapter requirements](https://support.google.com/youtube/answer/9884579).
 
 Generated fields remain editable. **Approve metadata** persists the reviewed title, description and tags against a snapshot of the exact project, mix, style profile, source fingerprint, and chapter timeline. Any relevant change requires regeneration and approval. **Use in Private Upload** only copies the fields into Milestone 7B's form; its independent source/channel snapshot, Private-only policy, duplicate protection, resumable transfer and explicit upload confirmation still apply. Importing, generating, saving, approving, or copying metadata never starts an upload.

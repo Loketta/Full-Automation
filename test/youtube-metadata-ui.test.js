@@ -9,7 +9,7 @@ test("metadata UI keeps import and generation separate from the explicitly confi
   assert.match(app, /Copied to the Private Upload form/); assert.match(app, /approvedYouTubeUploadPlan = undefined/);
   assert.match(html, /Export metadata for review/); assert.match(html, /Import reviewed analysis/); assert.match(html, /Accept proposed profile changes/);
   assert.match(html, /Compilation variables/); assert.match(html, /Individual-track variables/); assert.match(html, /Metadata type/); assert.match(html, /Generated project track/);
-  assert.match(app, /generate-track/); assert.match(app, /Selected genre profiles/);
+  assert.match(app, /generate-track/); assert.match(app, /Primary genres/); assert.match(app, /Secondary influences/); assert.match(app, /Omitted:/);
   assert.match(app, /youtubeMetadataUse\.disabled = individual/);
   assert.match(html, /Recover legacy chapter provenance/); assert.match(html, /Review WAV recovery/); assert.match(html, /Review selected MP4 association/); assert.match(app, /No verified chapters are available; no timestamps were guessed/); assert.match(app, /Provenance:/);
   assert.match(app, /beyond-the-blackwall\.json/); assert.match(app, /analysis-import/); assert.match(app, /existing profile fields are unchanged/); assert.doesNotMatch(app, /Gemini|billable requests|metadata\/ai/);

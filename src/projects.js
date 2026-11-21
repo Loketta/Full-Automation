@@ -105,6 +105,31 @@ export class ProjectStore {
     });
   }
 
+  previewFileAppend(projectId, payload, filename) {
+    const project = this.#findProject(projectId); const validated = validateImport(payload, { allowOffsetPositions: true }); const safeFilename = validateImportFilename(filename); const fingerprint = importFingerprint(validated);
+    if ((project.fileExpansions ?? []).some((entry) => entry.fingerprint === fingerprint)) throw new ProjectConflictError("This exact expansion has already been appended to the destination project.");
+    if (project.tracks.length + validated.tracks.length > MAX_PROJECT_TRACKS) throw new ProjectValidationError(`Appending this expansion would exceed the ${MAX_PROJECT_TRACKS}-track project limit.`);
+    const existingIdentifiers = new Set(project.tracks.map((track) => track.identifier).filter(Boolean)); const conflictingIdentifiers = [...new Set(validated.tracks.map((track) => track.identifier).filter((identifier) => identifier && existingIdentifiers.has(identifier)))];
+    const existingTitles = new Map(project.tracks.map((track) => [track.title.toLocaleLowerCase(), track.title])); const incomingTitleCounts = new Map(); for (const track of validated.tracks) { const key = track.title.toLocaleLowerCase(); incomingTitleCounts.set(key, (incomingTitleCounts.get(key) ?? 0) + 1); } const conflictingTitles = [...new Set(validated.tracks.filter((track) => existingTitles.has(track.title.toLocaleLowerCase()) || incomingTitleCounts.get(track.title.toLocaleLowerCase()) > 1).map((track) => existingTitles.get(track.title.toLocaleLowerCase()) ?? track.title))];
+    if (conflictingIdentifiers.length || conflictingTitles.length) {
+      const details = []; if (conflictingIdentifiers.length) details.push(`conflicting track identifiers: ${conflictingIdentifiers.join(", ")}`); if (conflictingTitles.length) details.push(`duplicate destination titles: ${conflictingTitles.join(", ")}`);
+      throw new ProjectConflictError(`Expansion cannot be appended because it contains ${details.join("; ")}. Change the expansion explicitly and preview it again.`);
+    }
+    const warnings = projectMetadataDifferences(project, validated);
+    const preview = { filename: safeFilename, fingerprint, destination: { id: project.id, name: project.name, existingTrackCount: project.tracks.length }, incomingTrackCount: validated.tracks.length, resultingTrackCount: project.tracks.length + validated.tracks.length, tracks: validated.tracks, warnings, projectSnapshot: projectStateFingerprint(project) };
+    return { ...preview, snapshot: crypto.createHash("sha256").update(JSON.stringify(preview)).digest("hex") };
+  }
+
+  appendFile(projectId, payload, approval) {
+    return this.#exclusive(async () => {
+      const preview = this.previewFileAppend(projectId, payload, approval?.filename);
+      if (preview.snapshot !== approval?.snapshot) throw new ProjectConflictError("The expansion or destination project changed after preview. Review and confirm it again.");
+      const project = this.#findProject(projectId); const newTracks = preview.tracks.map((track) => this.#newTrack(track)); const marker = { filename: preview.filename, fingerprint: preview.fingerprint, appendedAt: this.now().toISOString() };
+      await this.#mutateAndPersist(() => { project.tracks.push(...newTracks); project.fileExpansions = [...(project.fileExpansions ?? []), marker]; }, project);
+      return { project: structuredClone(project), addedTrackIds: newTracks.map((track) => track.id) };
+    });
+  }
+
   exportPlan(projectId) {
     const project = this.#findProject(projectId);
     const result = { version: PROJECT_IMPORT_VERSION, name: project.name, theme: project.theme };
@@ -373,7 +398,7 @@ export class ProjectStore {
   }
 }
 
-export function validateImport(payload) {
+export function validateImport(payload, options = {}) {
   const bytes = Buffer.byteLength(JSON.stringify(payload ?? null), "utf8");
   if (bytes > MAX_IMPORT_BYTES) throw new ProjectValidationError(`Import must be ${MAX_IMPORT_BYTES / 1024} KB or smaller.`);
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new ProjectValidationError("Import must be a JSON object.");
@@ -410,7 +435,8 @@ export function validateImport(payload) {
   if (payload.arrangementNotes !== undefined) result.arrangementNotes = validateText(payload.arrangementNotes, "Arrangement notes", 1, 2000);
   const identifiers = result.tracks.map((track) => track.identifier).filter(Boolean); if (new Set(identifiers).size !== identifiers.length) throw new ProjectValidationError("Track identifiers must be unique.");
   const positions = result.tracks.map((track) => track.position); if (positions.some((value) => value !== undefined) && positions.some((value) => value === undefined)) throw new ProjectValidationError("Every track must include a position when any explicit position is used.");
-  if (positions.some((value, index) => value !== undefined && value !== index + 1)) throw new ProjectValidationError("Track positions must be consecutive and match the JSON track order, starting at 1.");
+  const positionStart = options.allowOffsetPositions && positions[0] !== undefined ? positions[0] : 1;
+  if (positions.some((value, index) => value !== undefined && value !== positionStart + index)) throw new ProjectValidationError(`Track positions must be consecutive and match the JSON track order, starting at ${positionStart}.`);
   return result;
 }
 
@@ -453,6 +479,11 @@ function validateEnergy(value, index) { if (!["high", "moderate", "low"].include
 function validatePosition(value, index) { if (!Number.isInteger(value) || value < 1 || value > MAX_PROJECT_TRACKS) throw new ProjectValidationError(`Track ${index + 1} position is invalid.`); return value; }
 function validateTempo(value, index) { if (!value || typeof value !== "object" || Array.isArray(value)) throw new ProjectValidationError(`Track ${index + 1} tempo must be an object.`); rejectUnknownFields(value, ["minBpm", "maxBpm"], `Track ${index + 1} tempo`); const minBpm = Number(value.minBpm); const maxBpm = Number(value.maxBpm ?? value.minBpm); if (!Number.isFinite(minBpm) || !Number.isFinite(maxBpm) || minBpm < 20 || maxBpm > 300 || minBpm > maxBpm) throw new ProjectValidationError(`Track ${index + 1} tempo must be between 20 and 300 BPM with minBpm not exceeding maxBpm.`); return { minBpm, maxBpm }; }
 function assignPlanningMetadata(project, validated) { for (const field of ["thematicOpening", "genres", "moods", "targetDurationMinutes", "arrangementNotes"]) if (validated[field] !== undefined) project[field] = structuredClone(validated[field]); }
+function projectMetadataDifferences(project, incoming) {
+  const warnings = []; const fields = [["name", "project name"], ["theme", "theme"], ["thematicOpening", "thematic opening"], ["genres", "genres"], ["moods", "moods"], ["targetDurationMinutes", "duration target"], ["arrangementNotes", "arrangement notes"]];
+  for (const [field, label] of fields) if (incoming[field] !== undefined && JSON.stringify(incoming[field]) !== JSON.stringify(project[field])) warnings.push(`Incoming ${label} differs from the destination and will not replace it.`);
+  return warnings;
+}
 
 function assignOptionalOpening(target, value) {
   const opening = String(value ?? "").replace(/\s+/g, " ").trim();

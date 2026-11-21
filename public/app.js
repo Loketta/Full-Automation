@@ -30,6 +30,8 @@ const refreshLibrary = document.querySelector("#refresh-library");
 const createProjectForm = document.querySelector("#create-project-form");
 const importProjectForm = document.querySelector("#import-project-form");
 const projectFile = document.querySelector("#project-file");
+const projectImportMode = document.querySelector("#project-import-mode");
+const projectImportDestination = document.querySelector("#project-import-destination");
 const projectImportPreview = document.querySelector("#project-import-preview");
 const projectStatus = document.querySelector("#project-status");
 const projectSelect = document.querySelector("#project-select");
@@ -473,12 +475,15 @@ importProjectForm.addEventListener("submit", async (event) => {
   }
   try {
     const parsed = JSON.parse(await file.text());
-    const data = await apiJson("/api/projects/import/preview", {
+    const append = projectImportMode.value === "append"; const destinationId = projectImportDestination.value;
+    if (append && !destinationId) throw new Error("Choose the destination project before previewing an expansion.");
+    const endpoint = append ? `/api/projects/${encodeURIComponent(destinationId)}/append-file/preview` : "/api/projects/import/preview";
+    const data = await apiJson(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ filename: file.name, plan: parsed }),
     });
-    approvedProjectImport = { filename: file.name, plan: parsed, snapshot: data.preview.snapshot };
+    approvedProjectImport = { mode: append ? "append" : "new", destinationId, filename: file.name, plan: parsed, snapshot: data.preview.snapshot };
     renderProjectImportPreview(data.preview);
     projectStatus.textContent = "Plan validated. Review every track and warning before explicitly creating the project.";
   } catch (error) {
@@ -488,20 +493,20 @@ importProjectForm.addEventListener("submit", async (event) => {
 
 function renderProjectImportPreview(preview) {
   projectImportPreview.hidden = false; projectImportPreview.replaceChildren();
-  const heading = document.createElement("h4"); heading.textContent = preview.plan.name;
-  const theme = document.createElement("p"); theme.textContent = preview.plan.theme;
-  const opening = document.createElement("p"); opening.textContent = preview.plan.thematicOpening ? `YouTube opening: ${preview.plan.thematicOpening}` : "YouTube opening: not supplied.";
-  const summary = document.createElement("p"); summary.textContent = `${preview.trackCount} tracks · Energy: ${preview.energyDistribution.high} high, ${preview.energyDistribution.moderate} moderate, ${preview.energyDistribution.low} low${preview.plan.targetDurationMinutes ? ` · Planned target: ${preview.plan.targetDurationMinutes} minutes` : ""}. Planned duration is not evidence of actual or accepted recording duration.`;
+  const plan = preview.plan ?? approvedProjectImport.plan; const heading = document.createElement("h4"); heading.textContent = plan.name;
+  const theme = document.createElement("p"); theme.textContent = plan.theme;
+  const opening = document.createElement("p"); opening.textContent = plan.thematicOpening ? `YouTube opening: ${plan.thematicOpening}` : "YouTube opening: not supplied.";
+  const append = Boolean(preview.destination); const summary = document.createElement("p"); summary.textContent = append ? `Destination: ${preview.destination.name} · ${preview.destination.existingTrackCount} existing + ${preview.incomingTrackCount} incoming = ${preview.resultingTrackCount} planned tracks. Existing project metadata, tracks, recordings, review statuses and order will be preserved.` : `${preview.trackCount} tracks · Energy: ${preview.energyDistribution.high} high, ${preview.energyDistribution.moderate} moderate, ${preview.energyDistribution.low} low${plan.targetDurationMinutes ? ` · Planned target: ${plan.targetDurationMinutes} minutes` : ""}. Planned duration is not evidence of actual or accepted recording duration.`;
   projectImportPreview.append(heading, theme, opening, summary);
   for (const warningText of preview.warnings) { const warning = document.createElement("p"); warning.className = "warning"; warning.textContent = warningText; projectImportPreview.append(warning); }
-  const list = document.createElement("ol"); for (const track of preview.plan.tracks) { const item = document.createElement("li"); item.textContent = `${track.title}${track.energy ? ` — ${track.energy}` : ""}${track.tempo ? ` — ${track.tempo.minBpm}${track.tempo.maxBpm !== track.tempo.minBpm ? `–${track.tempo.maxBpm}` : ""} BPM` : ""}`; list.append(item); } projectImportPreview.append(list);
-  const confirm = document.createElement("button"); confirm.type = "button"; confirm.textContent = "Create imported project"; confirm.addEventListener("click", confirmProjectImport); projectImportPreview.append(confirm);
+  const tracks = preview.tracks ?? plan.tracks; const list = document.createElement("ol"); for (const track of tracks) { const item = document.createElement("li"); item.textContent = `${track.title} — ${track.direction}${track.energy ? ` — ${track.energy}` : ""}${track.tempo ? ` — ${track.tempo.minBpm}${track.tempo.maxBpm !== track.tempo.minBpm ? `–${track.tempo.maxBpm}` : ""} BPM` : ""}`; list.append(item); } projectImportPreview.append(list);
+  const confirm = document.createElement("button"); confirm.type = "button"; confirm.textContent = append ? "Append reviewed tracks" : "Create imported project"; confirm.addEventListener("click", confirmProjectImport); projectImportPreview.append(confirm);
 }
 
 async function confirmProjectImport(event) {
-  if (!approvedProjectImport || !window.confirm(`Create “${approvedProjectImport.plan.name}” with ${approvedProjectImport.plan.tracks.length} pending tracks? This imports planning data only and makes no paid request.`)) return;
+  if (!approvedProjectImport) return; const append = approvedProjectImport.mode === "append"; const destination = projects.find((project) => project.id === approvedProjectImport.destinationId); const confirmation = append ? `Append ${approvedProjectImport.plan.tracks.length} reviewed pending tracks to “${destination?.name ?? "the selected project"}”? Existing tracks, recordings, statuses, order and project metadata remain unchanged. No paid request will be made.` : `Create “${approvedProjectImport.plan.name}” with ${approvedProjectImport.plan.tracks.length} pending tracks? This imports planning data only and makes no paid request.`; if (!window.confirm(confirmation)) return;
   event.currentTarget.disabled = true;
-  try { const data = await apiJson("/api/projects/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(approvedProjectImport) }); approvedProjectImport = undefined; importProjectForm.reset(); projectImportPreview.hidden = true; projectImportPreview.replaceChildren(); await loadProjects(data.project.id); projectStatus.textContent = "Project imported locally. No music was generated, rendered, or uploaded."; }
+  try { const endpoint = append ? `/api/projects/${encodeURIComponent(approvedProjectImport.destinationId)}/append-file` : "/api/projects/import"; const data = await apiJson(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(approvedProjectImport) }); const project = data.project; approvedProjectImport = undefined; importProjectForm.reset(); projectImportMode.value = "new"; syncProjectImportMode(); projectImportPreview.hidden = true; projectImportPreview.replaceChildren(); await loadProjects(project.id); projectStatus.textContent = append ? "Expansion appended atomically. Existing recordings and project metadata were preserved; no music was generated." : "Project imported locally. No music was generated, rendered, or uploaded."; }
   catch (error) { projectStatus.textContent = error.message; event.currentTarget.disabled = false; }
 }
 
@@ -530,6 +535,8 @@ function describeTrackPlanning(track) {
 }
 
 exportProjectPlanButton.addEventListener("click", exportSelectedProjectPlan);
+projectImportMode.addEventListener("change", syncProjectImportMode);
+function syncProjectImportMode() { projectImportDestination.disabled = projectImportMode.value !== "append"; approvedProjectImport = undefined; projectImportPreview.hidden = true; projectImportPreview.replaceChildren(); }
 
 projectSelect.addEventListener("change", async () => {
   renderSelectedProject(projectSelect.value);
@@ -694,6 +701,7 @@ async function loadProjects(selectedId = projectSelect.value) {
     const data = await apiJson("/api/projects");
     projects = data.projects;
     refreshYouTubeMetadataSelectors();
+    const importDestination = projectImportDestination.value; projectImportDestination.replaceChildren(new Option("Choose a destination project", ""), ...projects.map((project) => new Option(`${project.name} (${project.tracks.length} tracks)`, project.id))); if (projects.some((project) => project.id === importDestination)) projectImportDestination.value = importDestination;
     projectSelect.replaceChildren(new Option("Choose a project", ""));
     for (const project of projects) projectSelect.append(new Option(project.name, project.id));
     const nextId = projects.some((project) => project.id === selectedId) ? selectedId : "";

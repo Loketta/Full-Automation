@@ -46,8 +46,13 @@
 
         <form id="import-project-form" class="nested-form">
           <h3>Import ChatGPT JSON</h3>
+          <p class="track-meta">New full compilation plans normally contain 25 tracks. Smaller plans and expansion files remain valid; nothing is generated automatically.</p>
           <label for="project-file">Version 1 project file (maximum 128 KB)</label>
           <input id="project-file" type="file" accept="application/json,.json" required>
+          <label for="project-import-mode">Import action</label>
+          <select id="project-import-mode"><option value="new">Create a new project</option><option value="append">Append tracks to an existing project</option></select>
+          <label for="project-import-destination">Destination project</label>
+          <select id="project-import-destination" disabled><option value="">Choose a destination project</option></select>
           <button type="submit">Review project plan</button>
           <a class="text-link" href="/examples/project-import-v1.json" download>Download example JSON</a>
           <a class="text-link" href="/examples/project-import-v1.schema.json" download>Download JSON Schema</a>
@@ -129,7 +134,7 @@
     <section class="mix-section" aria-labelledby="mix-heading">
       <p class="eyebrow">LOCAL WAV MASTER</p>
       <h2 id="mix-heading">Audio Mix Assembly</h2>
-      <p>Arrange existing Track Library recordings into a continuous local mix. Rendering never generates music or uploads anything.</p>
+      <p>Arrange selected Track Library recordings into a continuous local mix. Accepted recordings are available but are not included automatically: add only the recordings you want, then reorder or remove them without changing their review status. Ungenerated, rejected and excluded recordings do not count toward duration. Rendering never generates music or uploads anything.</p>
       <label for="mix-select">Saved draft</label>
       <select id="mix-select"><option value="">New mix</option></select>
       <label for="mix-title">Mix title</label>
@@ -138,7 +143,7 @@
       <input id="mix-crossfade" type="number" min="0" max="20" step="0.25" value="8">
       <div class="mix-add-row">
         <div class="library-heading-row">
-          <strong>Available recordings</strong>
+          <strong>Available recordings — choose compilation sources</strong>
           <button id="mix-add-accepted" type="button" class="secondary compact">Add All Accepted</button>
         </div>
         <label for="mix-recording-filter">Filter recordings</label>
@@ -146,6 +151,7 @@
         <div id="mix-recording-list" class="mix-recording-list"></div>
       </div>
       <ol id="mix-track-list" class="mix-track-list"></ol>
+      <p class="track-meta">The ordered list above is the compilation selection. Duration below uses only these source recordings, subtracts crossfade overlap, and reports the estimated final rendered duration.</p>
       <div id="mix-duration-preview" class="mix-duration-preview" role="status" aria-live="polite">Add recordings to calculate the duration.</div>
       <div class="track-actions">
         <button id="mix-save" type="button" class="secondary">Save draft</button>

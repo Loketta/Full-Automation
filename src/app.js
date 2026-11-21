@@ -309,6 +309,16 @@ export function createApp({ client, library, projects, projectPlans, batches, vi
     }
   });
 
+  app.post("/api/projects/:projectId/append-file/preview", (request, response) => {
+    try { return response.json({ preview: projects.previewFileAppend(request.params.projectId, request.body?.plan, request.body?.filename) }); }
+    catch (error) { return sendProjectError(response, error, logger); }
+  });
+
+  app.post("/api/projects/:projectId/append-file", async (request, response) => {
+    try { return response.status(201).json(await projects.appendFile(request.params.projectId, request.body?.plan, { filename: request.body?.filename, snapshot: request.body?.snapshot })); }
+    catch (error) { return sendProjectError(response, error, logger); }
+  });
+
   app.get("/api/projects/:projectId/export-plan", (request, response) => {
     try { return response.json(projects.exportPlan(request.params.projectId)); }
     catch (error) { return sendProjectError(response, error, logger); }

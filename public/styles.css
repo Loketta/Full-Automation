@@ -25,6 +25,9 @@ audio, input[type="range"] { width: 100%; }
 .projects-section { margin-top: 3rem; }
 .projects-section > h2 { font-size: 2rem; margin: .25rem 0; }
 .project-tools { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; }
+.project-import-preview, .project-planning-metadata { margin-top: 1rem; padding: .8rem; border-left: 3px solid #8ef4d2; background: #14211f; }
+.project-import-preview ol { max-height: 22rem; overflow: auto; }
+.project-import-preview .warning { margin-bottom: .5rem; }
 .available-plans { margin: 1.25rem 0; padding: 1rem; border: 1px solid #3d4664; border-radius: 12px; background: #0d101a; }
 .available-plan-list { display: grid; gap: .75rem; }
 .available-plan-card { padding: .8rem; border: 1px solid #303851; border-radius: 10px; }

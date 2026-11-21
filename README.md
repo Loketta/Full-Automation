@@ -50,26 +50,41 @@ Deletion requires browser confirmation and removes the MP3 plus its metadata. Du
 
 Projects organise an overarching musical theme and an ordered list of planned tracks. Each plan stores a title, musical direction, complete Lyria prompt, Pending/Generated status, and a link to its generated Track Library entry. Project metadata is stored locally in the ignored `output/projects.json` file and survives restarts.
 
-You can create projects manually or import a JSON plan prepared by ChatGPT. Import is local parsing only: it makes no AI or Lyria request. Review and edit every pending title and prompt, then save the plan before choosing **Generate this track**. Generation is blocked while any title, direction, or prompt edit is unsaved. The confirmation displays the exact saved title and full prompt, and the server verifies that snapshot again before making the normal one-request/no-retry paid call. Deleting a project or planned-track record never deletes its generated MP3.
+You can create projects manually or import a JSON plan prepared externally. Select a safe local `.json` file and choose **Review project plan**. The app validates the complete file before writing anything, then shows its theme, track order, energy distribution, planned-duration target, warnings and every title. **Create imported project** requires a separate confirmation bound to that exact validated snapshot. Repeating the same file content is rejected while its imported project exists. Import is local parsing only: it makes no AI or Lyria request. Review and edit every pending title and prompt, then save the plan before choosing **Generate this track**. Generation is blocked while any title, direction, or prompt edit is unsaved. The confirmation displays the exact saved title and full prompt, and the server verifies that snapshot again before making the normal one-request/no-retry paid call. Deleting a project or planned-track record never deletes its generated MP3.
 
 ### Project import schema, version 1
 
-Imports must be valid UTF-8 JSON no larger than 128 KB, with 1–100 tracks. Project names are 1–100 characters, themes 1–2,000, track titles 1–120, directions 1–1,000, and prompts 10–2,000 characters.
+Imports must be valid UTF-8 JSON no larger than 128 KB, use a safe direct `.json` filename, and contain 1–100 tracks. Project names are 1–100 characters, themes 1–2,000, track titles 1–120, directions 1–1,000, and prompts 10–2,000 characters. Version 1 remains backward-compatible with the original four required project fields: `version`, `name`, `theme`, and `tracks`; each track still requires `title`, `direction`, and `prompt`.
 
 ```json
 {
   "version": 1,
-  "name": "Night City — Total Warfare",
-  "theme": "Aggressive instrumental cyberpunk industrial techno.",
+  "name": "Example Neon Compilation",
+  "theme": "Optimistic instrumental synthwave with warm analogue synthesizers.",
+  "thematicOpening": "Music for the nights worth remembering.",
+  "genres": ["synthwave", "retrowave"],
+  "moods": ["optimistic", "nostalgic"],
+  "targetDurationMinutes": 62,
+  "arrangementNotes": "Build from a bright opening to a hopeful close.",
   "tracks": [
     {
-      "title": "Chrome Requiem",
-      "direction": "Relentless mechanical percussion and distorted bass.",
-      "prompt": "Instrumental cyberpunk industrial techno with mechanical percussion and distorted bass. No vocals."
+      "identifier": "first-light",
+      "title": "First Light",
+      "direction": "A confident, energetic opening.",
+      "prompt": "Instrumental optimistic synthwave with warm analogue synthesizers, driving drum machines and no vocals.",
+      "energy": "high",
+      "tempo": { "minBpm": 118, "maxBpm": 124 },
+      "musicalKey": "A major",
+      "position": 1,
+      "arrangementNotes": "Establish the melodic identity immediately."
     }
   ]
 }
 ```
+
+Optional project fields are `thematicOpening`, `genres`, `moods`, `targetDurationMinutes`, and `arrangementNotes`. The opening must be a complete punctuated sentence beginning with `Music for`. Optional track fields are a safe unique `identifier`, `energy` (`high`, `moderate`, or `low`), `tempo` (`minBpm`/`maxBpm`, 20–300), `musicalKey`, `position`, and `arrangementNotes`. If any explicit positions are used, every track must have one and positions must be consecutive from 1 in the JSON array order. The complete prompt remains the only authoritative generation text.
+
+Energy, tempo, key, intended position, arrangement notes and the planned duration target are creative planning metadata—not measured claims about generated audio. Project readiness still depends on actual generated recordings and their real review/duration state; a 62-minute target does not make a mix renderable. **Export project plan** downloads the same version-1 planning format and excludes IDs, credentials, generated media, review state, upload records and machine paths. Importing an export always creates a new project and never overwrites an existing one.
 
 The browser includes a downloadable complete example at `public/examples/project-import-v1.json` and a formal JSON Schema at `public/examples/project-import-v1.schema.json`.
 

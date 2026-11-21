@@ -293,12 +293,25 @@ export function createApp({ client, library, projects, projectPlans, batches, vi
     }
   });
 
-  app.post("/api/projects/import", async (request, response) => {
+  app.post("/api/projects/import/preview", (request, response) => {
     try {
-      return response.status(201).json({ project: await projects.import(request.body) });
+      return response.json({ preview: projects.previewFileImport(request.body?.plan, request.body?.filename) });
     } catch (error) {
       return sendProjectError(response, error, logger);
     }
+  });
+
+  app.post("/api/projects/import", async (request, response) => {
+    try {
+      return response.status(201).json({ project: await projects.importFile(request.body?.plan, { filename: request.body?.filename, snapshot: request.body?.snapshot }) });
+    } catch (error) {
+      return sendProjectError(response, error, logger);
+    }
+  });
+
+  app.get("/api/projects/:projectId/export-plan", (request, response) => {
+    try { return response.json(projects.exportPlan(request.params.projectId)); }
+    catch (error) { return sendProjectError(response, error, logger); }
   });
 
   if (projectPlans) {

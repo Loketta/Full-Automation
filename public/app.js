@@ -30,6 +30,7 @@ const refreshLibrary = document.querySelector("#refresh-library");
 const createProjectForm = document.querySelector("#create-project-form");
 const importProjectForm = document.querySelector("#import-project-form");
 const projectFile = document.querySelector("#project-file");
+const projectImportPreview = document.querySelector("#project-import-preview");
 const projectStatus = document.querySelector("#project-status");
 const projectSelect = document.querySelector("#project-select");
 const projectWorkspace = document.querySelector("#project-workspace");
@@ -41,6 +42,8 @@ const projectName = document.querySelector("#project-name");
 const projectTheme = document.querySelector("#project-theme");
 const projectThematicOpening = document.querySelector("#project-thematic-opening");
 const projectCreated = document.querySelector("#project-created");
+const projectPlanningMetadata = document.querySelector("#project-planning-metadata");
+const exportProjectPlanButton = document.querySelector("#export-project-plan");
 const plannedTrackList = document.querySelector("#planned-track-list");
 const addPlannedTrackForm = document.querySelector("#add-planned-track-form");
 const generateBatchButton = document.querySelector("#generate-batch");
@@ -132,6 +135,7 @@ let youtubeUploadPoll;
 let generatedYouTubeMetadata;
 let proposedYouTubeStyle;
 let currentYoutubeGenreProfiles = [];
+let approvedProjectImport;
 
 player.volume = Number(volume.value);
 volume.addEventListener("input", () => {
@@ -460,6 +464,7 @@ createProjectForm.addEventListener("submit", async (event) => {
 
 importProjectForm.addEventListener("submit", async (event) => {
   event.preventDefault();
+  approvedProjectImport = undefined; projectImportPreview.hidden = true; projectImportPreview.replaceChildren();
   const file = projectFile.files[0];
   if (!file) return;
   if (file.size > 128 * 1024) {
@@ -468,18 +473,63 @@ importProjectForm.addEventListener("submit", async (event) => {
   }
   try {
     const parsed = JSON.parse(await file.text());
-    const data = await apiJson("/api/projects/import", {
+    const data = await apiJson("/api/projects/import/preview", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(parsed),
+      body: JSON.stringify({ filename: file.name, plan: parsed }),
     });
-    importProjectForm.reset();
-    await loadProjects(data.project.id);
-    projectStatus.textContent = "Project imported locally. No music was generated.";
+    approvedProjectImport = { filename: file.name, plan: parsed, snapshot: data.preview.snapshot };
+    renderProjectImportPreview(data.preview);
+    projectStatus.textContent = "Plan validated. Review every track and warning before explicitly creating the project.";
   } catch (error) {
     projectStatus.textContent = error instanceof SyntaxError ? `Invalid JSON: ${error.message}` : error.message;
   }
 });
+
+function renderProjectImportPreview(preview) {
+  projectImportPreview.hidden = false; projectImportPreview.replaceChildren();
+  const heading = document.createElement("h4"); heading.textContent = preview.plan.name;
+  const theme = document.createElement("p"); theme.textContent = preview.plan.theme;
+  const opening = document.createElement("p"); opening.textContent = preview.plan.thematicOpening ? `YouTube opening: ${preview.plan.thematicOpening}` : "YouTube opening: not supplied.";
+  const summary = document.createElement("p"); summary.textContent = `${preview.trackCount} tracks · Energy: ${preview.energyDistribution.high} high, ${preview.energyDistribution.moderate} moderate, ${preview.energyDistribution.low} low${preview.plan.targetDurationMinutes ? ` · Planned target: ${preview.plan.targetDurationMinutes} minutes` : ""}. Planned duration is not evidence of actual or accepted recording duration.`;
+  projectImportPreview.append(heading, theme, opening, summary);
+  for (const warningText of preview.warnings) { const warning = document.createElement("p"); warning.className = "warning"; warning.textContent = warningText; projectImportPreview.append(warning); }
+  const list = document.createElement("ol"); for (const track of preview.plan.tracks) { const item = document.createElement("li"); item.textContent = `${track.title}${track.energy ? ` — ${track.energy}` : ""}${track.tempo ? ` — ${track.tempo.minBpm}${track.tempo.maxBpm !== track.tempo.minBpm ? `–${track.tempo.maxBpm}` : ""} BPM` : ""}`; list.append(item); } projectImportPreview.append(list);
+  const confirm = document.createElement("button"); confirm.type = "button"; confirm.textContent = "Create imported project"; confirm.addEventListener("click", confirmProjectImport); projectImportPreview.append(confirm);
+}
+
+async function confirmProjectImport(event) {
+  if (!approvedProjectImport || !window.confirm(`Create “${approvedProjectImport.plan.name}” with ${approvedProjectImport.plan.tracks.length} pending tracks? This imports planning data only and makes no paid request.`)) return;
+  event.currentTarget.disabled = true;
+  try { const data = await apiJson("/api/projects/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(approvedProjectImport) }); approvedProjectImport = undefined; importProjectForm.reset(); projectImportPreview.hidden = true; projectImportPreview.replaceChildren(); await loadProjects(data.project.id); projectStatus.textContent = "Project imported locally. No music was generated, rendered, or uploaded."; }
+  catch (error) { projectStatus.textContent = error.message; event.currentTarget.disabled = false; }
+}
+
+async function exportSelectedProjectPlan() {
+  const project = projects.find((item) => item.id === projectSelect.value); if (!project) return;
+  try { const plan = await apiJson(`/api/projects/${encodeURIComponent(project.id)}/export-plan`); const url = URL.createObjectURL(new Blob([`${JSON.stringify(plan, null, 2)}\n`], { type: "application/json" })); const link = document.createElement("a"); link.href = url; link.download = `${project.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "project"}.json`; link.click(); URL.revokeObjectURL(url); projectStatus.textContent = "Planning data exported. Credentials, audio, upload records and machine-specific state were excluded."; }
+  catch (error) { projectStatus.textContent = error.message; }
+}
+
+function renderProjectPlanningMetadata(project) {
+  const parts = [];
+  if (project.genres?.length) parts.push(`Genres: ${project.genres.join(", ")}`);
+  if (project.moods?.length) parts.push(`Moods: ${project.moods.join(", ")}`);
+  if (project.targetDurationMinutes) parts.push(`Planned duration target: ${project.targetDurationMinutes} minutes (not measured readiness)`);
+  if (project.arrangementNotes) parts.push(`Arrangement notes: ${project.arrangementNotes}`);
+  projectPlanningMetadata.hidden = !parts.length; projectPlanningMetadata.textContent = parts.join(" · ");
+}
+
+function describeTrackPlanning(track) {
+  const parts = [];
+  if (track.energy) parts.push(`Planned energy: ${track.energy}`);
+  if (track.tempo) parts.push(`Planned tempo: ${track.tempo.minBpm}${track.tempo.maxBpm !== track.tempo.minBpm ? `–${track.tempo.maxBpm}` : ""} BPM`);
+  if (track.musicalKey) parts.push(`Planned key: ${track.musicalKey}`);
+  if (track.arrangementNotes) parts.push(`Arrangement: ${track.arrangementNotes}`);
+  return parts.length ? `${parts.join(" · ")}. Planning metadata is not a verified property of the generated recording.` : "No optional musical-planning metadata.";
+}
+
+exportProjectPlanButton.addEventListener("click", exportSelectedProjectPlan);
 
 projectSelect.addEventListener("change", async () => {
   renderSelectedProject(projectSelect.value);
@@ -669,6 +719,7 @@ function renderSelectedProject(id) {
   projectTheme.value = project.theme;
   projectThematicOpening.value = project.thematicOpening ?? "";
   projectCreated.textContent = `Created ${new Date(project.createdAt).toLocaleString()}`;
+  renderProjectPlanningMetadata(project);
   projectProgress.textContent = formatProjectProgress(project.progress);
   plannedTrackList.replaceChildren();
   project.tracks.forEach((track, index) => plannedTrackList.append(createPlannedTrackCard(project, track, index)));
@@ -727,6 +778,7 @@ function createPlannedTrackCard(project, track, index) {
   const title = field("Title", track.title, "input", 120);
   const direction = field("Musical direction", track.direction, "textarea", 1000);
   const promptField = field("Complete Lyria generation prompt", track.prompt, "textarea", 2000);
+  const planning = document.createElement("p"); planning.className = "track-meta"; planning.textContent = describeTrackPlanning(track);
   const thematic = field("YouTube thematic opening override", track.thematicOpening ?? "", "input", 180);
   thematic.control.placeholder = project.thematicOpening || "Music for the last job.";
   title.control.dataset.plannedField = "title";
@@ -815,9 +867,9 @@ function createPlannedTrackCard(project, track, index) {
   actions.append(remove);
   if (locked) {
     const recordingPanel = createProjectRecording(project, track, cardMessage);
-    card.append(heading, title.wrapper, direction.wrapper, promptField.wrapper, thematic.wrapper, recordingPanel, actions, cardMessage);
+    card.append(heading, planning, title.wrapper, direction.wrapper, promptField.wrapper, thematic.wrapper, recordingPanel, actions, cardMessage);
   } else {
-    card.append(heading, title.wrapper, direction.wrapper, promptField.wrapper, thematic.wrapper, actions, cardMessage);
+    card.append(heading, planning, title.wrapper, direction.wrapper, promptField.wrapper, thematic.wrapper, actions, cardMessage);
   }
   return card;
 }

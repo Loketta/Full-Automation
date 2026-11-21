@@ -76,9 +76,46 @@ export class ProjectStore {
         createdAt: this.now().toISOString(),
         tracks: validated.tracks.map((track) => this.#newTrack(track)),
       };
+      assignPlanningMetadata(project, validated);
       if (sourcePlan) project.sourcePlan = validateSourcePlan(sourcePlan);
       return this.#mutateAndPersist(() => this.data.projects.push(project), project);
     });
+  }
+
+  previewFileImport(payload, filename) {
+    const validated = validateImport(payload); const safeFilename = validateImportFilename(filename); const fingerprint = importFingerprint(validated);
+    if (this.data.projects.some((project) => project.fileImport?.fingerprint === fingerprint)) throw new ProjectConflictError("This exact project plan has already been imported.");
+    const warnings = [];
+    if (!validated.targetDurationMinutes) warnings.push("No planned compilation duration was supplied.");
+    else if (validated.targetDurationMinutes < 62) warnings.push("The planned target is below the recommended 62-minute source-material buffer; rendering still depends on actual accepted recordings and final duration.");
+    if (validated.tracks.some((track) => !track.energy)) warnings.push("Some tracks do not include an energy classification.");
+    const energyDistribution = { high: 0, moderate: 0, low: 0 };
+    for (const track of validated.tracks) if (track.energy) energyDistribution[track.energy] += 1;
+    const preview = { filename: safeFilename, fingerprint, plan: validated, trackCount: validated.tracks.length, energyDistribution, warnings };
+    return { ...preview, snapshot: crypto.createHash("sha256").update(JSON.stringify(preview)).digest("hex") };
+  }
+
+  importFile(payload, approval) {
+    return this.#exclusive(async () => {
+      const preview = this.previewFileImport(payload, approval?.filename);
+      if (preview.snapshot !== approval?.snapshot) throw new ProjectConflictError("The project plan changed after preview. Review and confirm it again.");
+      const project = { id: this.randomUUID(), name: preview.plan.name, theme: preview.plan.theme, createdAt: this.now().toISOString(), tracks: preview.plan.tracks.map((track) => this.#newTrack(track)), fileImport: { filename: preview.filename, fingerprint: preview.fingerprint, importedAt: this.now().toISOString() } };
+      assignPlanningMetadata(project, preview.plan);
+      return this.#mutateAndPersist(() => this.data.projects.push(project), project);
+    });
+  }
+
+  exportPlan(projectId) {
+    const project = this.#findProject(projectId);
+    const result = { version: PROJECT_IMPORT_VERSION, name: project.name, theme: project.theme };
+    for (const field of ["thematicOpening", "genres", "moods", "targetDurationMinutes", "arrangementNotes"]) if (project[field] !== undefined) result[field] = structuredClone(project[field]);
+    result.tracks = project.tracks.map((track, index) => {
+      const exported = { title: track.title, direction: track.direction, prompt: track.prompt };
+      for (const field of ["identifier", "energy", "tempo", "musicalKey", "arrangementNotes"]) if (track[field] !== undefined) exported[field] = structuredClone(track[field]);
+      exported.position = index + 1;
+      return exported;
+    });
+    return result;
   }
 
   update(projectId, changes) {
@@ -289,13 +326,15 @@ export class ProjectStore {
   }
 
   #newTrack(values) {
-    return {
+    const track = {
       id: this.randomUUID(),
       title: validateText(values.title, "Track title", 1, 120),
       direction: validateText(values.direction, "Musical direction", 1, 1000),
       prompt: validateText(values.prompt, "Generation prompt", 10, 2000),
       status: "Pending",
     };
+    for (const field of ["identifier", "energy", "tempo", "musicalKey", "arrangementNotes"]) if (values[field] !== undefined) track[field] = structuredClone(values[field]);
+    return track;
   }
 
   #findProject(id) {
@@ -338,25 +377,48 @@ export function validateImport(payload) {
   const bytes = Buffer.byteLength(JSON.stringify(payload ?? null), "utf8");
   if (bytes > MAX_IMPORT_BYTES) throw new ProjectValidationError(`Import must be ${MAX_IMPORT_BYTES / 1024} KB or smaller.`);
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new ProjectValidationError("Import must be a JSON object.");
-  rejectUnknownFields(payload, ["version", "name", "theme", "tracks"], "Project");
+  rejectUnknownFields(payload, ["version", "name", "theme", "thematicOpening", "genres", "moods", "targetDurationMinutes", "arrangementNotes", "tracks"], "Project");
   if (payload.version !== PROJECT_IMPORT_VERSION) throw new ProjectValidationError(`Import version must be ${PROJECT_IMPORT_VERSION}.`);
   if (!Array.isArray(payload.tracks) || payload.tracks.length < 1 || payload.tracks.length > MAX_PROJECT_TRACKS) {
     throw new ProjectValidationError(`Import must contain between 1 and ${MAX_PROJECT_TRACKS} tracks.`);
   }
-  return {
+  const result = {
     version: PROJECT_IMPORT_VERSION,
     name: validateText(payload.name, "Project name", 1, 100),
     theme: validateText(payload.theme, "Project theme", 1, 2000),
     tracks: payload.tracks.map((track, index) => {
       if (!track || typeof track !== "object" || Array.isArray(track)) throw new ProjectValidationError(`Track ${index + 1} must be an object.`);
-      rejectUnknownFields(track, ["title", "direction", "prompt"], `Track ${index + 1}`);
-      return {
+      rejectUnknownFields(track, ["identifier", "title", "direction", "prompt", "energy", "tempo", "musicalKey", "position", "arrangementNotes"], `Track ${index + 1}`);
+      const item = {
         title: validateText(track.title, `Track ${index + 1} title`, 1, 120),
         direction: validateText(track.direction, `Track ${index + 1} direction`, 1, 1000),
         prompt: validateText(track.prompt, `Track ${index + 1} prompt`, 10, 2000),
       };
+      if (track.identifier !== undefined) item.identifier = validateIdentifier(track.identifier, index);
+      if (track.energy !== undefined) item.energy = validateEnergy(track.energy, index);
+      if (track.tempo !== undefined) item.tempo = validateTempo(track.tempo, index);
+      if (track.musicalKey !== undefined) item.musicalKey = validateText(track.musicalKey, `Track ${index + 1} musical key`, 1, 40);
+      if (track.position !== undefined) item.position = validatePosition(track.position, index);
+      if (track.arrangementNotes !== undefined) item.arrangementNotes = validateText(track.arrangementNotes, `Track ${index + 1} arrangement notes`, 1, 1000);
+      return item;
     }),
   };
+  if (payload.thematicOpening !== undefined) assignOptionalOpening(result, payload.thematicOpening);
+  if (payload.genres !== undefined) result.genres = validateDescriptors(payload.genres, "Genre descriptors");
+  if (payload.moods !== undefined) result.moods = validateDescriptors(payload.moods, "Mood descriptors");
+  if (payload.targetDurationMinutes !== undefined) result.targetDurationMinutes = validateDurationTarget(payload.targetDurationMinutes);
+  if (payload.arrangementNotes !== undefined) result.arrangementNotes = validateText(payload.arrangementNotes, "Arrangement notes", 1, 2000);
+  const identifiers = result.tracks.map((track) => track.identifier).filter(Boolean); if (new Set(identifiers).size !== identifiers.length) throw new ProjectValidationError("Track identifiers must be unique.");
+  const positions = result.tracks.map((track) => track.position); if (positions.some((value) => value !== undefined) && positions.some((value) => value === undefined)) throw new ProjectValidationError("Every track must include a position when any explicit position is used.");
+  if (positions.some((value, index) => value !== undefined && value !== index + 1)) throw new ProjectValidationError("Track positions must be consecutive and match the JSON track order, starting at 1.");
+  return result;
+}
+
+export function importFingerprint(validated) { return crypto.createHash("sha256").update(JSON.stringify(validated)).digest("hex"); }
+
+export function validateImportFilename(value) {
+  if (typeof value !== "string" || value !== path.basename(value) || !/^[A-Za-z0-9][A-Za-z0-9._ -]{0,119}\.json$/i.test(value)) throw new ProjectValidationError("Import filename must be a safe local .json filename.");
+  return value;
 }
 
 export function assertGenerationSnapshot(track, expected) {
@@ -383,6 +445,14 @@ function validateText(value, label, minimum, maximum) {
   }
   return text;
 }
+
+function validateDescriptors(value, label) { if (!Array.isArray(value) || value.length < 1 || value.length > 20) throw new ProjectValidationError(`${label} must contain between 1 and 20 entries.`); return value.map((item, index) => validateText(item, `${label} entry ${index + 1}`, 1, 80)); }
+function validateDurationTarget(value) { if (!Number.isFinite(value) || value < 1 || value > 1440) throw new ProjectValidationError("Intended compilation duration must be between 1 and 1440 minutes."); return value; }
+function validateIdentifier(value, index) { if (typeof value !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/.test(value)) throw new ProjectValidationError(`Track ${index + 1} identifier is invalid.`); return value; }
+function validateEnergy(value, index) { if (!["high", "moderate", "low"].includes(value)) throw new ProjectValidationError(`Track ${index + 1} energy must be high, moderate, or low.`); return value; }
+function validatePosition(value, index) { if (!Number.isInteger(value) || value < 1 || value > MAX_PROJECT_TRACKS) throw new ProjectValidationError(`Track ${index + 1} position is invalid.`); return value; }
+function validateTempo(value, index) { if (!value || typeof value !== "object" || Array.isArray(value)) throw new ProjectValidationError(`Track ${index + 1} tempo must be an object.`); rejectUnknownFields(value, ["minBpm", "maxBpm"], `Track ${index + 1} tempo`); const minBpm = Number(value.minBpm); const maxBpm = Number(value.maxBpm ?? value.minBpm); if (!Number.isFinite(minBpm) || !Number.isFinite(maxBpm) || minBpm < 20 || maxBpm > 300 || minBpm > maxBpm) throw new ProjectValidationError(`Track ${index + 1} tempo must be between 20 and 300 BPM with minBpm not exceeding maxBpm.`); return { minBpm, maxBpm }; }
+function assignPlanningMetadata(project, validated) { for (const field of ["thematicOpening", "genres", "moods", "targetDurationMinutes", "arrangementNotes"]) if (validated[field] !== undefined) project[field] = structuredClone(validated[field]); }
 
 function assignOptionalOpening(target, value) {
   const opening = String(value ?? "").replace(/\s+/g, " ").trim();

@@ -1,17 +1,33 @@
 {
   "version": 1,
-  "name": "Night City — Total Warfare",
-  "theme": "Aggressive instrumental cyberpunk industrial techno with distorted bass, mechanical percussion and dark synthesizers.",
+  "name": "Example Neon Compilation",
+  "theme": "Optimistic instrumental synthwave with warm analogue synthesizers, driving drum machines and memorable melodies.",
+  "thematicOpening": "Music for the nights worth remembering.",
+  "genres": ["synthwave", "retrowave"],
+  "moods": ["optimistic", "adventurous", "nostalgic"],
+  "targetDurationMinutes": 62,
+  "arrangementNotes": "Begin brightly, create a reflective middle passage and finish with renewed momentum.",
   "tracks": [
     {
-      "title": "Chrome Requiem",
-      "direction": "Relentless mechanical percussion and heavy distorted bass.",
-      "prompt": "Instrumental cyberpunk industrial techno. Relentless mechanical percussion, heavy distorted bass, aggressive synthesizers and a dark dystopian atmosphere. No vocals."
+      "identifier": "first-light",
+      "title": "First Light",
+      "direction": "A confident, energetic opening with a memorable lead melody.",
+      "prompt": "Instrumental optimistic synthwave with warm analogue synthesizers, driving drum machines, melodic bass and a bright memorable lead. Energetic opening, cinematic polish, no vocals.",
+      "energy": "high",
+      "tempo": { "minBpm": 118, "maxBpm": 124 },
+      "musicalKey": "A major",
+      "position": 1,
+      "arrangementNotes": "Establish the compilation's melodic identity immediately."
     },
     {
-      "title": "Blackwall Breach",
-      "direction": "Ominous buildup followed by explosive industrial rhythms.",
-      "prompt": "Instrumental dark cyberpunk techno with an ominous cinematic introduction, escalating mechanical rhythms, distorted bass and an explosive industrial climax. No vocals."
+      "identifier": "afterglow",
+      "title": "Afterglow",
+      "direction": "A moderate, nostalgic closing track with a hopeful resolution.",
+      "prompt": "Instrumental nostalgic retrowave with warm pads, restrained drum machines, expressive analogue lead synthesizer and a hopeful sunrise resolution. Moderate energy, no vocals.",
+      "energy": "moderate",
+      "tempo": { "minBpm": 96, "maxBpm": 104 },
+      "position": 2,
+      "arrangementNotes": "Leave space in the final passage for a calm resolution."
     }
   ]
 }
